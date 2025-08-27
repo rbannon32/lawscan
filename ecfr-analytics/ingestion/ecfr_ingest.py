@@ -3,6 +3,7 @@ import argparse, json, os, re, sys, time, hashlib, datetime
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import requests
 from dateutil import parser as dtp
+from dateutil.relativedelta import relativedelta
 from tqdm import tqdm
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
@@ -32,7 +33,8 @@ def get_json(path: str, params: Optional[dict]=None, retries: int=3, backoff: fl
 # ------------------------------ Structure Discovery ------------------------------
 
 def list_titles() -> List[Dict[str, Any]]:
-    return get_json("/versioner/v1/titles.json")
+    response = get_json("/versioner/v1/titles.json")
+    return response.get("titles", [])
 
 def get_title_structure(title: int, date: str) -> Dict[str, Any]:
     """Get title structure using the correct API format with date in path."""
@@ -338,21 +340,54 @@ def rows_for_part(part_json: Dict[str, Any], meta: Dict[str, Any], title_num: in
                 section_text = "\n".join([c for c in chunks if not c.strip().startswith("§")])
                 reserved = bool(re.search(r'\[?\s*reserved\s*\]?', section_text, flags=re.IGNORECASE))
             
-            # Clean up the text and compute metrics
+            # Clean up the text and compute enhanced metrics
             if section_text:
                 normalized = _normalize_text(section_text)
                 section_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
                 wc = _word_count(section_text)
+                
+                # Regulatory burden metrics
                 oblig = _regex_count(r'\b(shall|must|may not)\b', section_text)
+                prohibitions = _regex_count(r'\b(prohibited|forbidden|banned|not permitted)\b', section_text)
+                requirements = _regex_count(r'\b(required|mandatory|necessary|obligated)\b', section_text)
+                exceptions = _regex_count(r'\b(except|unless|provided that|however)\b', section_text)
+                
+                # Legal reference density
                 xref = _regex_count(r'§|\bCFR\b|\bU\.S\.C\.\b|\bUSC\b', section_text)
                 density = (xref * 1000.0 / wc) if wc else 0.0
+                
+                # Complexity indicators
+                sentences = len([s for s in re.split(r'[.!?]+', section_text) if s.strip()])
+                avg_sentence_length = wc / sentences if sentences > 0 else 0
+                
+                # Dollar amounts mentioned (regulatory cost indicators)
+                dollar_mentions = _regex_count(r'\$[\d,]+', section_text)
+                
+                # Time-sensitive language (deadlines, periods)
+                temporal_refs = _regex_count(r'\b(\d+\s+(day|week|month|year)s?|within\s+\d+|before\s+\d+|after\s+\d+)\b', section_text)
+                
+                # Enforcement language
+                enforcement = _regex_count(r'\b(penalty|fine|violation|enforcement|liable|subject to)\b', section_text)
+                
+                # Custom regulatory burden score (0-100)
+                burden_score = min(100.0, (oblig + prohibitions + requirements) * 10.0 / max(1, wc / 100))
+                
             else:
                 normalized = ""
                 section_hash = hashlib.sha256("".encode("utf-8")).hexdigest()
                 wc = 0
                 oblig = 0
+                prohibitions = 0
+                requirements = 0
+                exceptions = 0
                 xref = 0
                 density = 0.0
+                sentences = 0
+                avg_sentence_length = 0.0
+                dollar_mentions = 0
+                temporal_refs = 0
+                enforcement = 0
+                burden_score = 0.0
 
             rows.append({
                 "version_date": version_date,
@@ -383,6 +418,16 @@ def rows_for_part(part_json: Dict[str, Any], meta: Dict[str, Any], title_num: in
                 "section_hash": section_hash,
                 "normalized_text": normalized,
                 "raw_json": None,
+                # Enhanced custom metrics for regulatory analysis
+                "prohibition_count": prohibitions,
+                "requirement_count": requirements,
+                "exception_count": exceptions,
+                "sentence_count": sentences,
+                "avg_sentence_length": avg_sentence_length,
+                "dollar_mentions": dollar_mentions,
+                "temporal_references": temporal_refs,
+                "enforcement_terms": enforcement,
+                "regulatory_burden_score": burden_score,
             })
         
         # Recurse through children
@@ -406,6 +451,155 @@ def _extract_agency(chapter_label: Optional[str]) -> Optional[str]:
     s = re.sub(r'CHAPTER\s+[IVXLC]+\s*—\s*', '', chapter_label or '', flags=re.IGNORECASE).strip()
     s = s.split(",")[0].strip() if "," in s else s
     return s or chapter_label
+
+# ------------------------------ Historical Backfill ------------------------------
+
+def generate_monthly_dates(start_date: str, end_date: str) -> List[str]:
+    """Generate list of month-end dates for backfill."""
+    start = dtp.parse(start_date).date()
+    end = dtp.parse(end_date).date()
+    
+    dates = []
+    current = start
+    
+    while current <= end:
+        # Use last day of month for consistency
+        next_month = current.replace(day=1) + relativedelta(months=1)
+        month_end = next_month - datetime.timedelta(days=1)
+        dates.append(month_end.strftime("%Y-%m-%d"))
+        current = next_month
+    
+    return dates
+
+def should_skip_title(title_num: int, target_date: str, titles_meta: List[Dict[str, Any]], smart_skip: bool = True) -> bool:
+    """Determine if we should skip a title for a given date based on amendment history."""
+    if not smart_skip:
+        return False
+        
+    title_info = next((t for t in titles_meta if t.get("number") == title_num), None)
+    if not title_info:
+        return False
+    
+    latest_amended = title_info.get("latest_amended_on")
+    if not latest_amended:
+        return False
+    
+    try:
+        amended_date = dtp.parse(latest_amended).date()
+        target_date_obj = dtp.parse(target_date).date()
+        
+        # Skip if title was last amended before our target date by more than 1 month
+        # This means no substantive changes happened in this month
+        one_month_ago = target_date_obj - relativedelta(months=1)
+        return amended_date < one_month_ago
+        
+    except Exception:
+        # If we can't parse dates, don't skip
+        return False
+
+def run_backfill(args) -> int:
+    """Run historical backfill for multiple dates."""
+    start_date = args.start_date
+    end_date = args.end_date or datetime.date.today().strftime("%Y-%m-%d")
+    
+    print(f"Starting monthly backfill from {start_date} to {end_date}", file=sys.stderr)
+    
+    # Generate monthly dates
+    monthly_dates = generate_monthly_dates(start_date, end_date)
+    print(f"Generated {len(monthly_dates)} monthly dates for backfill", file=sys.stderr)
+    
+    # Check API availability once
+    check_api_availability()
+    
+    # Get titles metadata once (use current info for smart skipping)
+    titles_meta = list_titles()
+    title_lookup = {int(t["number"]): t.get("title", f"Title {t['number']}") for t in titles_meta if "number" in t}
+    requested_titles = args.titles or [i for i in range(1, 51)]
+    
+    # Initialize BigQuery if needed
+    if args.bigquery:
+        client = setup_bigquery_client()
+        dataset_id = args.dataset
+        table_name = args.table
+        table_id = f"{client.project}.{dataset_id}.{table_name}"
+        
+        ensure_dataset_exists(client, dataset_id)
+        ensure_table_exists(client, table_id)
+        print(f"BigQuery setup complete: {table_id}", file=sys.stderr)
+    
+    total_processed = 0
+    
+    for date in tqdm(monthly_dates, desc="Monthly backfill"):
+        snapshot_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        batch_rows = [] if args.bigquery else None
+        out_file = None
+        
+        # Setup output for this month
+        if not args.bigquery:
+            os.makedirs(args.out, exist_ok=True)
+            out_path = os.path.join(args.out, f"ecfr_sections_{date}.ndjson")
+            out_file = open(out_path, "w", encoding="utf-8")
+        
+        month_processed = 0
+        
+        try:
+            for title_num in requested_titles:
+                # Smart skipping logic
+                if should_skip_title(title_num, date, titles_meta, args.smart_skip):
+                    print(f"  Skipping Title {title_num} for {date} (no changes)", file=sys.stderr)
+                    continue
+                
+                title_name = title_lookup.get(title_num, f"Title {title_num}")
+                
+                try:
+                    # Get structure for this title at this date
+                    struct = get_title_structure(title_num, date)
+                    parts = enumerate_parts(struct)
+                    
+                    if not parts:
+                        continue
+                        
+                    for meta in parts:
+                        part_num = meta["part_num"]
+                        try:
+                            pj = get_part(title_num, part_num, date)
+                            rows = rows_for_part(pj, {**meta, "part_num": part_num}, title_num, title_name, date, snapshot_ts)
+                            
+                            if args.bigquery:
+                                batch_rows.extend(rows)
+                                if len(batch_rows) >= args.batch_size:
+                                    load_data_to_bigquery(client, table_id, batch_rows)
+                                    total_processed += len(batch_rows)
+                                    batch_rows = []
+                            else:
+                                for r in rows:
+                                    out_file.write(json.dumps(r, ensure_ascii=False) + "\n")
+                                month_processed += len(rows)
+                                
+                        except Exception as e:
+                            print(f"    ! Error processing Title {title_num} Part {part_num} on {date}: {e}", file=sys.stderr)
+                            continue
+                            
+                except Exception as e:
+                    print(f"  ! Error processing Title {title_num} on {date}: {e}", file=sys.stderr)
+                    continue
+                    
+            # Load remaining rows for this month
+            if args.bigquery and batch_rows:
+                load_data_to_bigquery(client, table_id, batch_rows)
+                total_processed += len(batch_rows)
+                
+        finally:
+            if out_file:
+                out_file.close()
+                print(f"Wrote {month_processed} rows to {out_path}", file=sys.stderr)
+                
+    # Create rollup tables if requested
+    if args.bigquery and args.create_rollups:
+        create_rollup_tables(client, dataset_id)
+        
+    print(f"Backfill complete! Processed {total_processed} total rows across {len(monthly_dates)} months", file=sys.stderr)
+    return 0
 
 # ------------------------------ BigQuery ------------------------------
 
@@ -436,7 +630,7 @@ def ensure_table_exists(client: bigquery.Client, table_id: str) -> None:
     except NotFound:
         print(f"Creating table {table_id}", file=sys.stderr)
         
-        # Define the schema matching bigquery_schema.sql
+        # Define the enhanced schema with custom regulatory metrics
         schema = [
             bigquery.SchemaField("version_date", "DATE", mode="REQUIRED"),
             bigquery.SchemaField("snapshot_ts", "TIMESTAMP", mode="REQUIRED"),
@@ -466,6 +660,16 @@ def ensure_table_exists(client: bigquery.Client, table_id: str) -> None:
             bigquery.SchemaField("section_hash", "STRING"),
             bigquery.SchemaField("normalized_text", "STRING"),
             bigquery.SchemaField("raw_json", "JSON"),
+            # Enhanced custom metrics for regulatory decision-making
+            bigquery.SchemaField("prohibition_count", "INTEGER"),
+            bigquery.SchemaField("requirement_count", "INTEGER"),
+            bigquery.SchemaField("exception_count", "INTEGER"),
+            bigquery.SchemaField("sentence_count", "INTEGER"),
+            bigquery.SchemaField("avg_sentence_length", "FLOAT"),
+            bigquery.SchemaField("dollar_mentions", "INTEGER"),
+            bigquery.SchemaField("temporal_references", "INTEGER"),
+            bigquery.SchemaField("enforcement_terms", "INTEGER"),
+            bigquery.SchemaField("regulatory_burden_score", "FLOAT"),
         ]
         
         table = bigquery.Table(table_id, schema=schema)
@@ -548,7 +752,7 @@ def load_data_to_bigquery(client: bigquery.Client, table_id: str, rows: List[Dic
 
 def main():
     ap = argparse.ArgumentParser(description="eCFR → NDJSON/BigQuery (section grain)")
-    ap.add_argument("--date", required=True, help="Point-in-time date (YYYY-MM-DD)")
+    ap.add_argument("--date", help="Point-in-time date (YYYY-MM-DD, required unless using --backfill)")
     ap.add_argument("--titles", nargs="+", type=int, help="Title numbers to ingest (default: all 1..50)")
     ap.add_argument("--out", default="./data", help="Output directory (for NDJSON mode)")
     ap.add_argument("--bigquery", action="store_true", help="Load directly to BigQuery instead of NDJSON files")
@@ -556,9 +760,20 @@ def main():
     ap.add_argument("--table", default="sections", help="BigQuery table name (default: sections)")
     ap.add_argument("--create-rollups", action="store_true", help="Create rollup tables after loading")
     ap.add_argument("--batch-size", type=int, default=1000, help="Batch size for BQ loading (default: 1000)")
+    ap.add_argument("--backfill", action="store_true", help="Run monthly backfill from 2017 to present")
+    ap.add_argument("--start-date", default="2017-01-31", help="Start date for backfill (YYYY-MM-DD, default: 2017-01-31)")
+    ap.add_argument("--end-date", help="End date for backfill (YYYY-MM-DD, default: today)")
+    ap.add_argument("--smart-skip", action="store_true", help="Skip titles that haven't changed (use with backfill)")
     args = ap.parse_args()
 
-    # Validate date
+    # Handle backfill mode
+    if args.backfill:
+        return run_backfill(args)
+
+    # Validate date for single-date mode
+    if not args.date:
+        print("Error: --date is required unless using --backfill", file=sys.stderr); sys.exit(2)
+        
     try:
         dtp.parse(args.date)
     except Exception:
@@ -570,7 +785,7 @@ def main():
     titles_meta = list_titles()
     title_lookup = {int(t["number"]): t.get("title", f"Title {t['number']}") for t in titles_meta if "number" in t}
     titles = args.titles or [i for i in range(1, 51)]
-    snapshot_ts = datetime.datetime.utcnow().isoformat()
+    snapshot_ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     # Initialize BigQuery if needed
     if args.bigquery:
