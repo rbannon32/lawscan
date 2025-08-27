@@ -365,38 +365,50 @@ def browse_titles(date: str = Query(..., description="Date YYYY-MM-DD")):
 @app.get("/api/browse/parts")
 def browse_parts(title: int, date: str = Query(..., description="Date YYYY-MM-DD")):
     """Browse all parts within a title with detailed statistics."""
-    sql = f"""
-    SELECT 
-        part_num,
-        ANY_VALUE(agency_name) as agency_name,
-        COUNT(*) as sections_count,
-        SUM(word_count) as total_words,
-        ROUND(AVG(COALESCE(regulatory_burden_score, 0)), 2) as avg_burden_score,
-        SUM(COALESCE(prohibition_count, 0)) as total_prohibitions,
-        SUM(COALESCE(requirement_count, 0)) as total_requirements,
-        SUM(COALESCE(enforcement_terms, 0)) as total_enforcement,
-        SUM(COALESCE(temporal_references, 0)) as total_deadlines,
-        SUM(COALESCE(dollar_mentions, 0)) as total_cost_refs,
-        -- Top burden section as preview
-        (SELECT section_citation 
-         FROM `{PROJECT_ID}.{DATASET}.{TABLE}` s2 
-         WHERE s2.title_num = @title AND s2.part_num = s1.part_num 
-           AND s2.version_date = DATE(@d)
-         ORDER BY COALESCE(s2.regulatory_burden_score, 0) DESC 
-         LIMIT 1) as highest_burden_section
-    FROM `{PROJECT_ID}.{DATASET}.{TABLE}` s1
-    WHERE version_date = DATE(@d) AND title_num = @title
-    GROUP BY part_num
-    ORDER BY SAFE_CAST(part_num AS INT64)
-    """
-    
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
-        query_parameters=[
-            bigquery.ScalarQueryParameter("d", "STRING", date),
-            bigquery.ScalarQueryParameter("title", "INT64", title)
-        ]
-    ))
-    return [dict(r) for r in job.result()]
+    try:
+        sql = f"""
+        WITH part_stats AS (
+          SELECT 
+              part_num,
+              ANY_VALUE(agency_name) as agency_name,
+              COUNT(*) as sections_count,
+              SUM(word_count) as total_words,
+              ROUND(AVG(COALESCE(regulatory_burden_score, 0)), 2) as avg_burden_score,
+              SUM(COALESCE(prohibition_count, 0)) as total_prohibitions,
+              SUM(COALESCE(requirement_count, 0)) as total_requirements,
+              SUM(COALESCE(enforcement_terms, 0)) as total_enforcement,
+              SUM(COALESCE(temporal_references, 0)) as total_deadlines,
+              SUM(COALESCE(dollar_mentions, 0)) as total_cost_refs
+          FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+          WHERE version_date = DATE(@d) AND title_num = @title
+          GROUP BY part_num
+        ),
+        top_burden_sections AS (
+          SELECT 
+              part_num,
+              section_citation,
+              ROW_NUMBER() OVER (PARTITION BY part_num ORDER BY COALESCE(regulatory_burden_score, 0) DESC) as rn
+          FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+          WHERE version_date = DATE(@d) AND title_num = @title
+        )
+        SELECT 
+            p.*,
+            t.section_citation as highest_burden_section
+        FROM part_stats p
+        LEFT JOIN top_burden_sections t ON p.part_num = t.part_num AND t.rn = 1
+        ORDER BY SAFE_CAST(p.part_num AS INT64)
+        """
+        
+        job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("d", "STRING", date),
+                bigquery.ScalarQueryParameter("title", "INT64", title)
+            ]
+        ))
+        return [dict(r) for r in job.result()]
+    except Exception as e:
+        print(f"Error in browse_parts: {e}")
+        raise HTTPException(status_code=500, detail=f"Database query failed: {str(e)}")
 
 @app.get("/api/browse/sections")
 def browse_sections(
