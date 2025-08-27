@@ -1,122 +1,315 @@
-# eCFR Analytics — BigQuery + FastAPI + Tiny UI
+# eCFR Analytics — Regulatory Intelligence Platform
 
-A compact, runnable bundle for a take‑home: download eCFR content, flatten to sections,
-load into BigQuery, expose a few analytics APIs, and show a minimal browser UI.
+A comprehensive regulatory analytics platform that ingests eCFR data, provides historical trend analysis, and delivers professional insights through BigQuery, FastAPI, and a modern web interface.
 
 **What you get**
-- Ingestion (`ingestion/ecfr_ingest.py`) — pulls Parts for selected Titles and flattens to **section‑level** NDJSON with metrics & hashes.
-- BigQuery schema + rollups (`infra/bigquery_schema.sql`, `infra/views.sql`).
-- FastAPI service (`api/main.py`) — endpoints for wordcount, checksums, diffs, and part details.
-- Static UI (`ui/index.html`, `ui/app.js`) — hits the FastAPI endpoints.
-- Quick load helper (`scripts/load_ndjson.sh`).
+- **Smart Ingestor** (`ingestion/ecfr_ingest.py`) — XML-based eCFR parser with BigQuery integration and historical backfill capabilities
+- **Enhanced Analytics** — Custom regulatory burden scoring, prohibition/requirement counting, enforcement term detection
+- **Historical Analysis** — Monthly snapshots from 2017-present with smart amendment-based skipping  
+- **Professional API** (`api/main.py`) — 15+ endpoints for comprehensive regulatory analysis including trends, burden distribution, and change velocity
+- **Modern UI** (`ui/`) — ShadCN-inspired interface with dark/light themes, tabbed navigation, and responsive design
+- **Automated Infrastructure** — BigQuery dataset/table creation, schema management, and batched loading
 
-> This uses the public **eCFR Versioner** endpoints (no API key).
-> Pick a point‑in‑time `--date` (YYYY‑MM‑DD) for reproducible snapshots.
-
----
-
-## 0) Prereqs
-
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) Python package manager
-- Google Cloud SDK **or** a service account with BigQuery access
-- Set `PROJECT_ID` environment variable or create `.env` file (see `.env.example`)
+> Uses the public **eCFR Versioner** API with robust XML parsing.
+> Supports reproducible point-in-time snapshots and comprehensive historical analysis.
 
 ---
 
-## 1) Ingest eCFR Data
+## Prerequisites
 
-The ingestor now handles BigQuery setup automatically! Choose your preferred mode:
+- **Python 3.10+**
+- **[uv](https://docs.astral.sh/uv/)** — Modern Python package manager
+- **Google Cloud Platform** — Project with BigQuery API enabled
+- **Authentication** — Google Cloud SDK configured OR service account JSON
 
-### Option A: Direct to BigQuery (Recommended)
+---
+
+## Quick Start
+
+### 1. Setup Environment
+
 ```bash
+# Clone or extract the project
+cd ecfr-analytics
+
+# Setup ingestion environment
 cd ingestion
 uv sync
 
-# Copy and edit environment file
+# Setup API environment  
+cd ../api
+uv sync
+
+# Configure BigQuery access
 cp .env.example .env
-# Edit .env to set your PROJECT_ID
-
-# Ingest directly to BigQuery (creates dataset/tables automatically)
-uv run python ecfr_ingest.py --date 2025-08-01 --titles 21 --bigquery --create-rollups
-
-# Multiple titles with custom dataset/table names
-uv run python ecfr_ingest.py --date 2025-08-01 --titles 21 40 49 --bigquery --dataset my_ecfr --table sections_test --create-rollups
+# Edit .env to set your PROJECT_ID and preferred dataset/table names
 ```
 
-### Option B: NDJSON Files (Traditional)
+### 2. Authenticate with Google Cloud
+
+```bash
+# Option A: Use gcloud CLI (recommended for local development)
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+
+# Option B: Use service account (for production/CI)
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+```
+
+### 3. Ingest Sample Data
+
 ```bash
 cd ingestion
-uv sync
 
-# Generate NDJSON files
-uv run python ecfr_ingest.py --date 2025-08-01 --titles 21
+# Quick test - ingest 3 titles for current date
+uv run python ecfr_ingest.py --date 2025-08-22 --titles 3 7 21 --bigquery
 
-# Output: ./data/ecfr_sections_2025-08-01.ndjson
-# Then load with: ./scripts/load_ndjson.sh YOUR_PROJECT_ID ecfr sections ./ingestion/data/ecfr_sections_2025-08-01.ndjson
+# Historical backfill (recommended) - creates rich dataset for analysis
+uv run python ecfr_ingest.py --backfill --titles 3 --start-year 2020
 ```
 
-### Benefits of BigQuery Mode:
-- Automatically creates datasets and tables if they don't exist
-- No manual `bq` CLI commands needed
-- Batched loading for better performance
-- Optional rollup table creation
-- Schema matches exactly with `infra/bigquery_schema.sql`
-
-> The script walks **structure → parts** then fetches **full part content** and emits section‑rows.
-
----
-
-## 2) Run the API (FastAPI + Uvicorn)
+### 4. Start the API Server
 
 ```bash
 cd api
-uv sync
-
-# set env (copy .env.example → .env and edit)
-export PROJECT_ID=YOUR_PROJECT_ID
-export DATASET=ecfr
-export TABLE=sections
-
-# if you use a service account locally:
-# export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa.json
-
 uv run uvicorn main:app --reload --port 8000
+
+# API will be available at http://localhost:8000
+# Interactive docs at http://localhost:8000/docs
 ```
 
-APIs (examples):
-- `/api/agency/wordcount?date=2025-08-01`
-- `/api/agency/checksum?date=2025-08-01`
-- `/api/changes?from=2025-07-01&to=2025-08-01`
-- `/api/part?title=21&part=101&date=2025-08-01`
-
----
-
-## 3) Run the tiny UI
-
-Serve `ui/` any way you like, or just open `ui/index.html` and set the API base at the top of `ui/app.js`.
+### 5. Launch the Web Interface
 
 ```bash
-# simple Python static server
 cd ui
 python -m http.server 8080
-# open http://localhost:8080
+# Open http://localhost:8080
 ```
 
 ---
 
-## Notes & trade‑offs
+## Detailed Usage
 
-- **Grain:** section-level rows enable clean diffs + rollups.
-- **Partitioning:** table is partitioned by `version_date` for historical analyses.
-- **Agency mapping:** we pull a best‑effort `agency_name` from Chapter labels — good enough for dashboards.
-- **Robust parsing:** eCFR JSON varies slightly by node type; the ingestor walks nodes defensively and
-  extracts sections/paragraphs without relying on a brittle schema.
-- **Custom metrics included:** obligation and cross‑reference densities per 1k words.
-- **Checksums:** stable SHA‑256 over normalized text; part/agency hashes are ordered aggs of child hashes.
+### Data Ingestion Options
+
+#### Single Date Ingestion
+```bash
+cd ingestion
+
+# Basic ingestion for specific date
+uv run python ecfr_ingest.py --date 2025-08-22 --titles 3 7 21 --bigquery
+
+# With custom dataset/table names  
+uv run python ecfr_ingest.py --date 2025-08-22 --titles 21 --bigquery \
+  --dataset my_ecfr --table enhanced_sections --create-rollups
+```
+
+#### Historical Backfill (Recommended)
+```bash
+# Full historical analysis (2017-present, monthly snapshots)
+uv run python ecfr_ingest.py --backfill --titles 3 7 21 --start-year 2017
+
+# Recent history only
+uv run python ecfr_ingest.py --backfill --titles 40 --start-year 2023
+
+# Custom date range
+uv run python ecfr_ingest.py --backfill --titles 21 \
+  --start-date 2023-01-01 --end-date 2024-12-31
+```
+
+#### Command Line Options
+- `--titles` — CFR titles to ingest (space-separated integers)
+- `--date` — Specific date (YYYY-MM-DD) for single ingestion
+- `--backfill` — Enable historical backfill mode
+- `--start-year` / `--start-date` — Backfill start point  
+- `--end-date` — Backfill end point (defaults to current date)
+- `--bigquery` — Load directly to BigQuery (auto-creates tables)
+- `--dataset` — BigQuery dataset name (default: ecfr_enhanced)
+- `--table` — BigQuery table name (default: sections_enhanced)
+- `--create-rollups` — Generate summary tables
+
+### API Configuration
+
+```bash
+cd api
+
+# Environment variables (or use .env file)
+export PROJECT_ID=your-gcp-project
+export DATASET=ecfr_enhanced  
+export TABLE=sections_enhanced
+
+# Optional service account
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa.json
+
+# Start with custom host/port
+uv run uvicorn main:app --host 0.0.0.0 --port 8001
+```
+
+#### Key API Endpoints
+
+**Core Analytics**
+- `GET /api/agency/wordcount?date=2025-08-22` — Word counts by agency
+- `GET /api/agency/checksum?date=2025-08-22` — Content checksums  
+- `GET /api/changes?from=2025-08-01&to=2025-08-22` — Section changes over time
+- `GET /api/part?title=3&part=100&date=2025-08-22` — Detailed part contents
+
+**Historical Analysis** 
+- `GET /api/historical/agency-trends?start_date=2024-01-01&end_date=2025-08-22` — Agency trends over time
+- `GET /api/historical/regulatory-burden?start_date=2024-01-01&end_date=2025-08-22&top_n=10` — Top regulatory burden agencies
+- `GET /api/historical/change-velocity?start_date=2024-01-01&end_date=2025-08-22` — Rate of regulatory changes
+
+**Advanced Metrics**
+- `GET /api/metrics/burden-distribution?date=2025-08-22` — Regulatory burden analysis
+- `GET /api/metrics/cost-analysis?date=2025-08-22` — Sections with financial references
+- `GET /api/available-dates` — Available data dates
+- `GET /api/agencies?date=2025-08-22` — Agency list
+
+### Web Interface Features
+
+The modern web interface provides:
+
+- **Overview Tab** — Agency word counts, checksums, and change analysis
+- **Historical Analysis Tab** — Trend visualization and regulatory burden tracking  
+- **Part Browser Tab** — Deep-dive into specific CFR parts and sections
+- **Dark/Light Theme** — Automatic system preference detection with manual toggle
+- **Responsive Design** — Professional ShadCN-inspired components
+- **Real-time API Status** — Connection monitoring with visual indicators
+- **Enhanced Tables** — Smart formatting, loading states, and error handling
+
+### Advanced Configuration
+
+#### Custom BigQuery Schema
+The enhanced schema includes custom regulatory metrics:
+
+```sql
+-- Regulatory burden scoring (0-100 scale)
+regulatory_burden_score FLOAT64,
+
+-- Content analysis metrics  
+prohibition_count INT64,
+requirement_count INT64,
+enforcement_terms INT64,
+temporal_references INT64,
+dollar_mentions INT64
+```
+
+#### Performance Optimization
+
+**Monthly Backfill Strategy**
+- Uses amendment dates to skip unchanged months
+- Processes ~100 months instead of 3000+ days
+- Batched BigQuery loading for optimal performance
+
+**Smart Caching**
+- Content hashes prevent duplicate processing
+- Amendment date tracking for efficient updates
+- Partitioned tables for fast historical queries
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**BigQuery Authentication Errors**
+```bash
+# Check authentication status
+gcloud auth list
+gcloud config get-value project
+
+# Re-authenticate if needed
+gcloud auth application-default login
+```
+
+**API Connection Issues**
+```bash
+# Verify API is running
+curl http://localhost:8000/healthz
+
+# Check BigQuery connectivity
+curl "http://localhost:8000/api/available-dates"
+```
+
+**Empty Data Results**
+- Ensure you've run ingestion for the dates you're querying
+- Check that your `.env` file points to the correct dataset/table  
+- Verify BigQuery permissions on your project
+
+**UI Not Loading**
+- Check browser console for JavaScript errors
+- Verify API_BASE setting in `ui/app.js` matches your API server
+- Ensure CORS is working (should be enabled by default)
+
+### Development Tips
+
+**Testing Changes**
+```bash
+# Quick single-title test
+uv run python ecfr_ingest.py --date $(date +%Y-%m-%d) --titles 3 --bigquery
+
+# Validate API with different dates
+curl "http://localhost:8000/api/available-dates" | jq '.[0:5]'
+```
+
+**Performance Monitoring**
+- BigQuery job history: https://console.cloud.google.com/bigquery/jobs
+- API logs: Check uvicorn output for query timing  
+- Browser network tab: Monitor API response times
+
+---
+
+## Technical Architecture
+
+### Data Pipeline
+1. **eCFR Versioner API** → XML parsing → Section extraction
+2. **Content Analysis** → Custom metrics calculation → BigQuery batching  
+3. **Historical Backfill** → Amendment-based change detection → Monthly snapshots
+4. **API Layer** → Query optimization → JSON responses
+5. **Web Interface** → Interactive analytics → Professional UI
+
+### Key Design Decisions
+
+- **Section-level granularity** enables precise change tracking and flexible rollups
+- **Monthly snapshots** balance completeness with processing efficiency  
+- **Custom regulatory metrics** provide decision-making insights beyond raw text
+- **BigQuery partitioning** by `version_date` optimizes historical analysis queries
+- **XML parsing with fallbacks** handles API evolution and edge cases
+- **Batched loading** minimizes BigQuery API calls and costs
+- **Professional UI components** create production-ready presentation layer
+
+### Schema Design
+
+The enhanced schema supports sophisticated regulatory analysis:
+
+```sql
+CREATE TABLE sections_enhanced (
+  version_date DATE,
+  title_num INT64,
+  part_num STRING, 
+  section_citation STRING,
+  section_heading STRING,
+  agency_name STRING,
+  word_count INT64,
+  section_hash STRING,
+  
+  -- Custom regulatory metrics
+  regulatory_burden_score FLOAT64,  -- 0-100 composite score
+  prohibition_count INT64,          -- "shall not", "prohibited" 
+  requirement_count INT64,          -- "shall", "must", "required"
+  enforcement_terms INT64,          -- "penalty", "violation", "fine"
+  temporal_references INT64,        -- Deadlines and time constraints  
+  dollar_mentions INT64,            -- Cost and financial references
+  
+  -- Content analysis
+  obligation_density FLOAT64,       -- Obligations per 1k words
+  cross_reference_density FLOAT64   -- Citations per 1k words
+)
+PARTITION BY version_date;
+```
 
 ---
 
 ## License
-Public domain (U.S. Government works + glue code here released CC0).
+
+Public domain (U.S. Government works + glue code released under CC0).
 
