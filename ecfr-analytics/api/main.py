@@ -335,3 +335,202 @@ def agencies(date: Optional[str] = Query(None, description="Date YYYY-MM-DD, def
     
     job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     return [dict(r) for r in job.result()]
+
+# ========================== ENHANCED BROWSING ENDPOINTS ==========================
+
+@app.get("/api/browse/titles")
+def browse_titles(date: str = Query(..., description="Date YYYY-MM-DD")):
+    """Browse all available titles with summary statistics."""
+    sql = f"""
+    SELECT 
+        title_num,
+        COUNT(DISTINCT part_num) as parts_count,
+        COUNT(*) as sections_count,
+        SUM(COALESCE(word_count, 0)) as total_words,
+        ROUND(AVG(COALESCE(regulatory_burden_score, 0)), 2) as avg_burden_score,
+        SUM(COALESCE(prohibition_count, 0)) as total_prohibitions,
+        SUM(COALESCE(requirement_count, 0)) as total_requirements,
+        SUM(COALESCE(enforcement_terms, 0)) as total_enforcement
+    FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+    WHERE version_date = DATE(@d)
+    GROUP BY title_num
+    ORDER BY title_num
+    """
+    
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ScalarQueryParameter("d", "STRING", date)]
+    ))
+    return [dict(r) for r in job.result()]
+
+@app.get("/api/browse/parts")
+def browse_parts(title: int, date: str = Query(..., description="Date YYYY-MM-DD")):
+    """Browse all parts within a title with detailed statistics."""
+    sql = f"""
+    SELECT 
+        part_num,
+        ANY_VALUE(agency_name) as agency_name,
+        COUNT(*) as sections_count,
+        SUM(word_count) as total_words,
+        ROUND(AVG(COALESCE(regulatory_burden_score, 0)), 2) as avg_burden_score,
+        SUM(COALESCE(prohibition_count, 0)) as total_prohibitions,
+        SUM(COALESCE(requirement_count, 0)) as total_requirements,
+        SUM(COALESCE(enforcement_terms, 0)) as total_enforcement,
+        SUM(COALESCE(temporal_references, 0)) as total_deadlines,
+        SUM(COALESCE(dollar_mentions, 0)) as total_cost_refs,
+        -- Top burden section as preview
+        (SELECT section_citation 
+         FROM `{PROJECT_ID}.{DATASET}.{TABLE}` s2 
+         WHERE s2.title_num = @title AND s2.part_num = s1.part_num 
+           AND s2.version_date = DATE(@d)
+         ORDER BY COALESCE(s2.regulatory_burden_score, 0) DESC 
+         LIMIT 1) as highest_burden_section
+    FROM `{PROJECT_ID}.{DATASET}.{TABLE}` s1
+    WHERE version_date = DATE(@d) AND title_num = @title
+    GROUP BY part_num
+    ORDER BY SAFE_CAST(part_num AS INT64)
+    """
+    
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("d", "STRING", date),
+            bigquery.ScalarQueryParameter("title", "INT64", title)
+        ]
+    ))
+    return [dict(r) for r in job.result()]
+
+@app.get("/api/browse/sections")
+def browse_sections(
+    title: int, 
+    part: str, 
+    date: str = Query(..., description="Date YYYY-MM-DD"),
+    sort_by: str = Query("order", description="Sort by: order, burden, words, prohibitions")
+):
+    """Browse sections within a part with enhanced sorting and filtering."""
+    
+    # Determine sort clause
+    sort_options = {
+        "order": "section_order",
+        "burden": "regulatory_burden_score DESC",
+        "words": "word_count DESC", 
+        "prohibitions": "prohibition_count DESC"
+    }
+    sort_clause = sort_options.get(sort_by, "section_order")
+    
+    sql = f"""
+    SELECT 
+        section_citation,
+        section_heading,
+        section_order,
+        word_count,
+        regulatory_burden_score,
+        prohibition_count,
+        requirement_count,
+        enforcement_terms,
+        temporal_references,
+        dollar_mentions,
+        -- Risk level classification
+        CASE 
+            WHEN regulatory_burden_score >= 80 THEN 'Very High'
+            WHEN regulatory_burden_score >= 60 THEN 'High'  
+            WHEN regulatory_burden_score >= 40 THEN 'Medium'
+            WHEN regulatory_burden_score >= 20 THEN 'Low'
+            ELSE 'Very Low'
+        END as risk_level,
+        -- Complexity indicators
+        (prohibition_count + requirement_count + enforcement_terms) as complexity_score
+    FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+    WHERE version_date = DATE(@d) 
+      AND title_num = @title 
+      AND part_num = @part
+    ORDER BY {sort_clause}
+    """
+    
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("d", "STRING", date),
+            bigquery.ScalarQueryParameter("title", "INT64", title),
+            bigquery.ScalarQueryParameter("part", "STRING", part)
+        ]
+    ))
+    return [dict(r) for r in job.result()]
+
+@app.get("/api/browse/search")
+def browse_search(
+    query: str = Query(..., description="Search query"),
+    date: str = Query(..., description="Date YYYY-MM-DD"),
+    limit: int = Query(50, description="Result limit")
+):
+    """Search across section headings and citations."""
+    sql = f"""
+    SELECT 
+        title_num,
+        part_num,
+        section_citation,
+        section_heading,
+        agency_name,
+        word_count,
+        regulatory_burden_score,
+        prohibition_count + requirement_count + enforcement_terms as complexity_score
+    FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+    WHERE version_date = DATE(@d) 
+      AND (
+        LOWER(section_citation) LIKE LOWER(@query)
+        OR LOWER(section_heading) LIKE LOWER(@query)
+      )
+    ORDER BY regulatory_burden_score DESC
+    LIMIT @limit
+    """
+    
+    search_pattern = f"%{query}%"
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("d", "STRING", date),
+            bigquery.ScalarQueryParameter("query", "STRING", search_pattern),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit)
+        ]
+    ))
+    return [dict(r) for r in job.result()]
+
+@app.get("/api/section/text")
+def get_section_text(
+    title: int,
+    part: str, 
+    section: str,
+    date: str = Query(..., description="Date YYYY-MM-DD")
+):
+    """Get the full text content of a specific section."""
+    sql = f"""
+    SELECT 
+        section_citation,
+        section_heading,
+        section_text,
+        word_count,
+        regulatory_burden_score,
+        prohibition_count,
+        requirement_count,
+        enforcement_terms,
+        temporal_references,
+        dollar_mentions,
+        agency_name
+    FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+    WHERE version_date = DATE(@d) 
+      AND title_num = @title 
+      AND part_num = @part
+      AND section_citation = @section
+    LIMIT 1
+    """
+    
+    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("d", "STRING", date),
+            bigquery.ScalarQueryParameter("title", "INT64", title),
+            bigquery.ScalarQueryParameter("part", "STRING", part),
+            bigquery.ScalarQueryParameter("section", "STRING", section)
+        ]
+    ))
+    
+    result = list(job.result())
+    if not result:
+        raise HTTPException(status_code=404, detail="Section not found")
+    
+    return dict(result[0])

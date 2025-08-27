@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>eCFR Analytics Dashboard</title>
     <!-- Development CDN Setup - For production, install Tailwind CSS locally -->
+    <!-- The console warning is expected and safe to ignore in development -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     <script>
@@ -363,57 +364,187 @@
 
       <!-- Part Browser Tab -->
       <div id="tab-search" class="tab-content hidden">
-        <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
-          <div class="p-6">
-            <h3 class="text-lg font-semibold mb-4">CFR Part Browser</h3>
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4">
-              <input 
-                type="number" 
-                id="title" 
-                value="3" 
-                placeholder="Title"
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <input 
-                type="text" 
-                id="part" 
-                value="100" 
-                placeholder="Part"
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <input 
-                type="date" 
-                id="date_part" 
-                value="2025-08-22" 
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <button 
-                onclick="loadPart()" 
-                class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-              >
-                <i data-lucide="search" class="h-4 w-4 mr-2"></i>
-                Browse
-              </button>
-            </div>
-            <div class="rounded-md border">
-              <div class="overflow-auto max-h-96">
-                <table class="w-full">
-                  <thead class="border-b bg-muted/50">
-                    <tr>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">#</th>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Section</th>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Heading</th>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Words</th>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Burden</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbl_part_body">
-                    <tr>
-                      <td class="p-4 text-center text-muted-foreground" colspan="5">Enter Title and Part above, then click "Browse"</td>
-                    </tr>
-                  </tbody>
-                </table>
+        <div class="space-y-6">
+          <!-- Search Bar -->
+          <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
+            <div class="p-4">
+              <div class="flex items-center gap-4">
+                <div class="flex-1">
+                  <input 
+                    type="text" 
+                    id="regulation_search" 
+                    placeholder="Search regulations (e.g., 'environmental', 'safety', '3.100')"
+                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </div>
+                <input 
+                  type="date" 
+                  id="browse_date" 
+                  value="2025-08-22" 
+                  class="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                />
+                <button 
+                  onclick="searchRegulations()"
+                  class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+                >
+                  <i data-lucide="search" class="h-4 w-4 mr-2"></i>
+                  Search
+                </button>
               </div>
+            </div>
+          </div>
+
+          <!-- Breadcrumb Navigation -->
+          <div id="breadcrumb" class="hidden">
+            <div class="flex items-center space-x-2 text-sm text-muted-foreground">
+              <button onclick="showTitles()" class="hover:text-foreground">All Titles</button>
+              <span id="breadcrumb-content"></span>
+            </div>
+          </div>
+
+          <!-- Main Content Area -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Navigation Panel -->
+            <div class="space-y-4">
+              <!-- Titles Overview -->
+              <div id="titles-panel" class="card bg-card text-card-foreground rounded-lg border shadow-sm">
+                <div class="p-6">
+                  <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold">CFR Titles</h3>
+                    <button onclick="loadTitles()" class="text-primary hover:text-primary/80">
+                      <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                  <div class="space-y-2" id="titles-list">
+                    <p class="text-center text-muted-foreground py-8">Click refresh to load titles</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Parts Panel (Initially Hidden) -->
+              <div id="parts-panel" class="card bg-card text-card-foreground rounded-lg border shadow-sm hidden">
+                <div class="p-6">
+                  <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold">Parts in Title <span id="current-title"></span></h3>
+                    <button onclick="showTitles()" class="text-muted-foreground hover:text-foreground">
+                      <i data-lucide="arrow-left" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                  <div class="space-y-2" id="parts-list"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Content Panel -->
+            <div class="lg:col-span-2">
+              <!-- Welcome Screen -->
+              <div id="welcome-panel" class="card bg-card text-card-foreground rounded-lg border shadow-sm">
+                <div class="p-8 text-center">
+                  <i data-lucide="book-open" class="h-16 w-16 text-muted-foreground mx-auto mb-4"></i>
+                  <h3 class="text-xl font-semibold mb-2">Smart CFR Browser</h3>
+                  <p class="text-muted-foreground mb-6">Navigate regulations with enhanced analytics and risk scoring</p>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                    <div class="space-y-2">
+                      <h4 class="font-medium">Features:</h4>
+                      <ul class="text-sm text-muted-foreground space-y-1">
+                        <li>• Regulatory burden scoring</li>
+                        <li>• Risk level classification</li>
+                        <li>• Prohibition/requirement counts</li>
+                        <li>• Financial impact indicators</li>
+                      </ul>
+                    </div>
+                    <div class="space-y-2">
+                      <h4 class="font-medium">Get Started:</h4>
+                      <ul class="text-sm text-muted-foreground space-y-1">
+                        <li>• Load titles to browse by category</li>
+                        <li>• Use search for specific topics</li>
+                        <li>• Sort sections by burden score</li>
+                        <li>• View detailed metrics per section</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Sections Panel -->
+              <div id="sections-panel" class="card bg-card text-card-foreground rounded-lg border shadow-sm hidden">
+                <div class="p-6">
+                  <div class="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 class="text-lg font-semibold">Sections in Part <span id="current-part"></span></h3>
+                      <p class="text-sm text-muted-foreground" id="part-summary"></p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <select id="sort-sections" onchange="sortSections()" 
+                              class="h-8 rounded-md border border-input bg-background px-2 py-1 text-sm">
+                        <option value="order">Default Order</option>
+                        <option value="burden">Regulatory Burden</option>
+                        <option value="words">Word Count</option>
+                        <option value="prohibitions">Prohibitions</option>
+                      </select>
+                      <button onclick="showParts()" class="text-muted-foreground hover:text-foreground">
+                        <i data-lucide="arrow-left" class="h-4 w-4"></i>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="space-y-3" id="sections-list"></div>
+                </div>
+              </div>
+
+              <!-- Search Results Panel -->
+              <div id="search-results" class="card bg-card text-card-foreground rounded-lg border shadow-sm hidden">
+                <div class="p-6">
+                  <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold">Search Results</h3>
+                    <button onclick="clearSearch()" class="text-muted-foreground hover:text-foreground">
+                      <i data-lucide="x" class="h-4 w-4"></i>
+                    </button>
+                  </div>
+                  <div class="space-y-3" id="search-list"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section Text Modal -->
+    <div id="section-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 hidden z-50">
+      <div class="bg-background rounded-lg border shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+        <div class="flex items-center justify-between p-6 border-b">
+          <div>
+            <h3 class="text-lg font-semibold" id="modal-section-title">Section Details</h3>
+            <p class="text-sm text-muted-foreground" id="modal-section-citation"></p>
+          </div>
+          <button onclick="closeSectionModal()" class="text-muted-foreground hover:text-foreground">
+            <i data-lucide="x" class="h-6 w-6"></i>
+          </button>
+        </div>
+        
+        <div class="flex-1 overflow-auto p-6">
+          <div id="modal-section-content">
+            <p class="text-center text-muted-foreground">Loading section content...</p>
+          </div>
+        </div>
+        
+        <div class="border-t p-4">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div class="text-center">
+              <span class="text-muted-foreground">Burden Score</span>
+              <div class="font-semibold" id="modal-burden-score">-</div>
+            </div>
+            <div class="text-center">
+              <span class="text-muted-foreground">Word Count</span>
+              <div class="font-semibold" id="modal-word-count">-</div>
+            </div>
+            <div class="text-center">
+              <span class="text-muted-foreground">Prohibitions</span>
+              <div class="font-semibold" id="modal-prohibitions">-</div>
+            </div>
+            <div class="text-center">
+              <span class="text-muted-foreground">Requirements</span>
+              <div class="font-semibold" id="modal-requirements">-</div>
             </div>
           </div>
         </div>

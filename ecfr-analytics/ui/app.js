@@ -2,9 +2,19 @@
 const API_BASE = (location.port === '8080') ? 'http://localhost:8000' : '';
 
 async function jfetch(url) {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(await r.text());
-  return await r.json();
+  try {
+    const r = await fetch(url);
+    if (!r.ok) {
+      const errorText = await r.text();
+      throw new Error(`API Error (${r.status}): ${errorText || 'Unknown error'}`);
+    }
+    return await r.json();
+  } catch (err) {
+    if (err.name === 'TypeError' && err.message.includes('fetch')) {
+      throw new Error('API server unavailable. Please ensure the API is running on http://localhost:8000');
+    }
+    throw err;
+  }
 }
 
 function renderRows(tbody, rows, cols, formatters = {}) {
@@ -140,18 +150,25 @@ async function loadDiff() {
   }
 }
 
-async function loadPart() {
+// Legacy function - replaced by new hierarchical browser
+async function loadPartLegacy() {
   try {
     const tbody = document.querySelector('#tbl_part_body');
     if (!tbody) {
-      console.error('Table body #tbl_part_body not found');
+      console.log('Legacy part table not found - using new browser interface');
       return;
     }
     
     showLoading(tbody, 4);
-    const title = document.getElementById('title').value;
-    const part = document.getElementById('part').value;
-    const d = document.getElementById('date_part').value;
+    const title = document.getElementById('title')?.value;
+    const part = document.getElementById('part')?.value;
+    const d = document.getElementById('date_part')?.value;
+    
+    if (!title || !part || !d) {
+      renderError(tbody, 'Please provide title, part, and date', 4);
+      return;
+    }
+    
     const rows = await jfetch(`${API_BASE}/api/part?title=${encodeURIComponent(title)}&part=${encodeURIComponent(part)}&date=${encodeURIComponent(d)}`);
     
     tbody.innerHTML = '';
@@ -220,8 +237,8 @@ function toggleTheme() {
 
 // API Status check
 async function checkApiStatus() {
-  const statusEl = document.getElementById('api-status');
-  const textEl = document.getElementById('status-text');
+  const statusEl = document.getElementById('apiStatus');
+  const textEl = document.getElementById('apiStatusText');
   
   if (!statusEl || !textEl) {
     console.warn('API status elements not found');
@@ -230,11 +247,11 @@ async function checkApiStatus() {
   
   try {
     await jfetch(`${API_BASE}/healthz`);
-    statusEl.className = 'flex items-center gap-2 px-3 py-1.5 text-sm bg-green-100 text-green-800 rounded-full dark:bg-green-900 dark:text-green-200';
-    textEl.textContent = 'API Connected';
+    statusEl.className = 'h-2 w-2 bg-green-500 rounded-full';
+    textEl.textContent = 'Connected';
   } catch (err) {
-    statusEl.className = 'flex items-center gap-2 px-3 py-1.5 text-sm bg-red-100 text-red-800 rounded-full dark:bg-red-900 dark:text-red-200';
-    textEl.textContent = 'API Disconnected';
+    statusEl.className = 'h-2 w-2 bg-red-500 rounded-full';
+    textEl.textContent = 'Disconnected';
   }
 }
 
@@ -256,11 +273,53 @@ document.addEventListener('DOMContentLoaded', function() {
   const today = '2025-08-22';
   const yesterday = '2025-08-21';
   
-  document.getElementById('date_wc').value = today;
-  document.getElementById('date_ck').value = today;
-  document.getElementById('date_part').value = today;
-  document.getElementById('from').value = yesterday;
-  document.getElementById('to').value = today;
+  // Set dates with null checks
+  const setValueSafely = (id, value) => {
+    const element = document.getElementById(id);
+    if (element) element.value = value;
+  };
+  
+  setValueSafely('date_wc', today);
+  setValueSafely('date_ck', today);
+  setValueSafely('date_part', today);
+  setValueSafely('from', yesterday);
+  setValueSafely('to', today);
+  setValueSafely('browse_date', today);
+  setValueSafely('date_burden', today);
+  setValueSafely('trend_start', '2025-01-01');
+  setValueSafely('trend_end', today);
+  setValueSafely('burden_start', '2025-01-01');
+  setValueSafely('burden_end', today);
+  
+  // Add Enter key support for search
+  const searchInput = document.getElementById('regulation_search');
+  if (searchInput) {
+    searchInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        searchRegulations();
+      }
+    });
+  }
+  
+  // Add ESC key support for modal
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('section-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        closeSectionModal();
+      }
+    }
+  });
+  
+  // Close modal when clicking outside
+  const modal = document.getElementById('section-modal');
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) {
+        closeSectionModal();
+      }
+    });
+  }
 });
 
 // Missing functions for Historical Analysis tab
@@ -363,4 +422,512 @@ async function loadBurdenDistribution() {
     const tbody = document.querySelector('#tbl_burden_body');
     if (tbody) renderError(tbody, 'Error loading burden distribution: ' + err.message, 4);
   }
+}
+
+// ========================== ENHANCED PART BROWSER ==========================
+
+// Current state
+let currentBrowseDate = '2025-08-22';
+let currentTitle = null;
+let currentPart = null;
+let currentSections = [];
+let searchInProgress = false;
+
+// Load all available titles with statistics
+async function loadTitles() {
+  try {
+    const date = document.getElementById('browse_date').value;
+    currentBrowseDate = date;
+    
+    const container = document.getElementById('titles-list');
+    container.innerHTML = '<p class="text-center text-muted-foreground">Loading titles...</p>';
+    
+    let titles;
+    try {
+      titles = await jfetch(`${API_BASE}/api/browse/titles?date=${encodeURIComponent(date)}`);
+    } catch (err) {
+      console.log('New browse endpoint failed, using fallback approach:', err.message);
+      // Fallback: Get available titles from existing endpoints
+      container.innerHTML = `
+        <div class="text-center py-8">
+          <p class="text-muted-foreground mb-4">Enhanced browsing temporarily unavailable</p>
+          <p class="text-sm text-muted-foreground">Using basic title list</p>
+          <div class="mt-4 space-y-2">
+            <div onclick="loadPartsLegacy(3)" class="p-3 rounded-lg border bg-background hover:bg-muted/50 cursor-pointer">
+              <h4 class="font-semibold">Title 3</h4>
+              <p class="text-sm text-muted-foreground">Click to browse (basic mode)</p>
+            </div>
+            <div onclick="loadPartsLegacy(7)" class="p-3 rounded-lg border bg-background hover:bg-muted/50 cursor-pointer">
+              <h4 class="font-semibold">Title 7</h4>
+              <p class="text-sm text-muted-foreground">Click to browse (basic mode)</p>
+            </div>
+            <div onclick="loadPartsLegacy(21)" class="p-3 rounded-lg border bg-background hover:bg-muted/50 cursor-pointer">
+              <h4 class="font-semibold">Title 21</h4>
+              <p class="text-sm text-muted-foreground">Click to browse (basic mode)</p>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    if (!titles || titles.length === 0) {
+      container.innerHTML = '<p class="text-center text-muted-foreground">No titles available for this date</p>';
+      return;
+    }
+    
+    container.innerHTML = titles.map(title => `
+      <div onclick="loadParts(${title.title_num})" 
+           class="p-3 rounded-lg border bg-background hover:bg-muted/50 cursor-pointer transition-colors">
+        <div class="flex items-center justify-between mb-2">
+          <h4 class="font-semibold">Title ${title.title_num}</h4>
+          <div class="flex items-center gap-1">
+            <span class="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full">
+              ${title.parts_count} parts
+            </span>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs text-muted-foreground mb-2">
+          <span>${title.total_words?.toLocaleString() || 0} words</span>
+          <span>${title.sections_count?.toLocaleString() || 0} sections</span>
+          <span>Avg burden: ${title.avg_burden_score || 0}</span>
+          <span>${title.total_prohibitions || 0} prohibitions</span>
+        </div>
+        <div class="text-xs text-muted-foreground">
+          ${title.total_requirements || 0} requirements • ${title.total_enforcement || 0} enforcement terms
+        </div>
+      </div>
+    `).join('');
+    
+    showWelcome();
+    
+  } catch (err) {
+    console.error('Error loading titles:', err);
+    document.getElementById('titles-list').innerHTML = 
+      `<p class="text-center text-red-600">Error: ${err.message}</p>`;
+  }
+}
+
+// Load parts for a specific title
+async function loadParts(titleNum) {
+  try {
+    currentTitle = titleNum;
+    
+    const container = document.getElementById('parts-list');
+    container.innerHTML = '<p class="text-center text-muted-foreground">Loading parts...</p>';
+    
+    const parts = await jfetch(`${API_BASE}/api/browse/parts?title=${titleNum}&date=${encodeURIComponent(currentBrowseDate)}`);
+    
+    if (!parts || parts.length === 0) {
+      container.innerHTML = '<p class="text-center text-muted-foreground">No parts found</p>';
+      return;
+    }
+    
+    container.innerHTML = parts.map(part => `
+      <div onclick="loadSections(${titleNum}, '${part.part_num}')" 
+           class="p-4 rounded-lg border bg-background hover:bg-muted/50 cursor-pointer transition-colors">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <h4 class="font-semibold">Part ${part.part_num}</h4>
+            <p class="text-sm text-muted-foreground">${part.agency_name || 'Unknown Agency'}</p>
+          </div>
+          <div class="text-right">
+            <div class="px-2 py-1 text-xs rounded-full ${
+              part.avg_burden_score >= 60 ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+              part.avg_burden_score >= 40 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+              'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+            }">
+              ${part.avg_burden_score || 0} burden
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs text-muted-foreground mb-2">
+          <span>${part.sections_count} sections</span>
+          <span>${part.total_words?.toLocaleString() || 0} words</span>
+          <span>${part.total_prohibitions || 0} prohibitions</span>
+          <span>${part.total_requirements || 0} requirements</span>
+        </div>
+        ${part.highest_burden_section ? 
+          `<p class="text-xs text-muted-foreground">📈 Highest burden: ${part.highest_burden_section}</p>` : 
+          ''
+        }
+        ${part.total_cost_refs > 0 ? 
+          `<p class="text-xs text-yellow-600">💰 ${part.total_cost_refs} cost references</p>` : 
+          ''
+        }
+      </div>
+    `).join('');
+    
+    // Update UI state
+    document.getElementById('current-title').textContent = titleNum;
+    document.getElementById('titles-panel').classList.add('hidden');
+    document.getElementById('parts-panel').classList.remove('hidden');
+    
+    hideAllContentPanels();
+    showBreadcrumb(`> Title ${titleNum}`);
+    
+  } catch (err) {
+    console.error('Error loading parts:', err);
+    document.getElementById('parts-list').innerHTML = 
+      `<p class="text-center text-red-600">Error: ${err.message}</p>`;
+  }
+}
+
+// Load sections for a specific part
+async function loadSections(titleNum, partNum, sortBy = 'order') {
+  try {
+    currentTitle = titleNum;
+    currentPart = partNum;
+    
+    const container = document.getElementById('sections-list');
+    container.innerHTML = '<p class="text-center text-muted-foreground">Loading sections...</p>';
+    
+    const sections = await jfetch(
+      `${API_BASE}/api/browse/sections?title=${titleNum}&part=${encodeURIComponent(partNum)}&date=${encodeURIComponent(currentBrowseDate)}&sort_by=${sortBy}`
+    );
+    
+    if (!sections || sections.length === 0) {
+      container.innerHTML = '<p class="text-center text-muted-foreground">No sections found</p>';
+      return;
+    }
+    
+    currentSections = sections;
+    
+    // Calculate summary stats
+    const totalWords = sections.reduce((sum, s) => sum + (s.word_count || 0), 0);
+    const avgBurden = sections.reduce((sum, s) => sum + (s.regulatory_burden_score || 0), 0) / sections.length;
+    const totalProhibitions = sections.reduce((sum, s) => sum + (s.prohibition_count || 0), 0);
+    
+    document.getElementById('part-summary').textContent = 
+      `${sections.length} sections • ${totalWords.toLocaleString()} words • Avg burden: ${avgBurden.toFixed(1)} • ${totalProhibitions} prohibitions`;
+    
+    container.innerHTML = sections.map((section, idx) => {
+      const riskColor = getRiskColor(section.risk_level);
+      return `
+        <div class="p-4 rounded-lg border bg-background hover:bg-muted/50 transition-colors cursor-pointer"
+             onclick="showSectionText('${section.section_citation}', ${titleNum}, '${partNum}')">
+          <div class="flex items-start justify-between mb-2">
+            <div class="flex-1">
+              <h5 class="font-medium font-mono text-sm mb-1">${section.section_citation}</h5>
+              <p class="text-sm text-muted-foreground mb-2">${section.section_heading || 'No heading'}</p>
+            </div>
+            <div class="flex items-center gap-2 ml-4">
+              <span class="px-2 py-1 text-xs rounded-full ${riskColor}">
+                ${section.risk_level}
+              </span>
+              <span class="text-xs text-muted-foreground">
+                ${(section.regulatory_burden_score || 0).toFixed(1)}
+              </span>
+              <i data-lucide="eye" class="h-4 w-4 text-muted-foreground ml-2"></i>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground mb-2">
+            <span>${(section.word_count || 0).toLocaleString()} words</span>
+            <span>${section.prohibition_count || 0} prohibitions</span>
+            <span>${section.requirement_count || 0} requirements</span>
+            <span>${section.enforcement_terms || 0} enforcement</span>
+          </div>
+          
+          ${section.temporal_references > 0 || section.dollar_mentions > 0 ? `
+            <div class="flex items-center gap-4 text-xs">
+              ${section.temporal_references > 0 ? 
+                `<span class="text-blue-600">⏰ ${section.temporal_references} deadlines</span>` : ''
+              }
+              ${section.dollar_mentions > 0 ? 
+                `<span class="text-green-600">💰 ${section.dollar_mentions} cost refs</span>` : ''
+              }
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+    
+    // Update UI state
+    document.getElementById('current-part').textContent = partNum;
+    document.getElementById('sort-sections').value = sortBy;
+    
+    hideAllContentPanels();
+    document.getElementById('sections-panel').classList.remove('hidden');
+    showBreadcrumb(`> Title ${titleNum} > Part ${partNum}`);
+    
+  } catch (err) {
+    console.error('Error loading sections:', err);
+    document.getElementById('sections-list').innerHTML = 
+      `<p class="text-center text-red-600">Error: ${err.message}</p>`;
+  }
+}
+
+// Search across regulations  
+async function searchRegulations() {
+  console.log('Search function called');
+  
+  // Prevent multiple simultaneous searches
+  if (searchInProgress) {
+    console.log('Search already in progress, ignoring');
+    return;
+  }
+  
+  try {
+    const query = document.getElementById('regulation_search').value.trim();
+    console.log('Search query:', query);
+    if (!query) {
+      console.log('No query provided');
+      return;
+    }
+    
+    searchInProgress = true;
+    const date = document.getElementById('browse_date').value;
+    console.log('Search date:', date);
+    const container = document.getElementById('search-list');
+    
+    container.innerHTML = '<p class="text-center text-muted-foreground">Searching...</p>';
+    
+    const results = await jfetch(
+      `${API_BASE}/api/browse/search?query=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`
+    );
+    
+    console.log('Search results:', results);
+    
+    if (!results || results.length === 0) {
+      container.innerHTML = `
+        <div class="text-center py-8">
+          <i data-lucide="search-x" class="h-12 w-12 text-muted-foreground mx-auto mb-4"></i>
+          <h4 class="text-lg font-semibold mb-2">No results found</h4>
+          <p class="text-muted-foreground mb-4">No regulations found matching "${query}"</p>
+          <p class="text-sm text-muted-foreground">Try different keywords or check if data exists for ${date}</p>
+        </div>
+      `;
+      // Recreate icons for the new content
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+    
+    container.innerHTML = results.map(result => {
+      const riskColor = getRiskColor(getRiskLevel(result.regulatory_burden_score));
+      return `
+        <div class="p-4 rounded-lg border bg-background hover:bg-muted/50 transition-colors cursor-pointer"
+             onclick="loadSections(${result.title_num}, '${result.part_num}')">
+          <div class="flex items-start justify-between mb-2">
+            <div class="flex-1">
+              <h5 class="font-medium font-mono text-sm mb-1">${result.section_citation}</h5>
+              <p class="text-sm text-muted-foreground mb-1">${result.section_heading || 'No heading'}</p>
+              <p class="text-xs text-muted-foreground">${result.agency_name} • Title ${result.title_num} Part ${result.part_num}</p>
+            </div>
+            <div class="flex items-center gap-2 ml-4">
+              <span class="px-2 py-1 text-xs rounded-full ${riskColor}">
+                ${getRiskLevel(result.regulatory_burden_score)}
+              </span>
+              <span class="text-xs text-muted-foreground">
+                ${(result.regulatory_burden_score || 0).toFixed(1)}
+              </span>
+            </div>
+          </div>
+          <div class="text-xs text-muted-foreground">
+            ${(result.word_count || 0).toLocaleString()} words • Complexity: ${result.complexity_score || 0}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    hideAllContentPanels();
+    document.getElementById('search-results').classList.remove('hidden');
+    showBreadcrumb(`> Search: "${query}"`);
+    
+  } catch (err) {
+    console.error('Error searching regulations:', err);
+    const container = document.getElementById('search-list');
+    if (container) {
+      container.innerHTML = `
+        <div class="text-center py-8">
+          <i data-lucide="alert-circle" class="h-12 w-12 text-red-500 mx-auto mb-4"></i>
+          <h4 class="text-lg font-semibold mb-2 text-red-600">Search Error</h4>
+          <p class="text-muted-foreground mb-4">${err.message}</p>
+          <p class="text-sm text-muted-foreground">Please check your connection and try again</p>
+        </div>
+      `;
+      // Recreate icons for the new content
+      if (window.lucide) window.lucide.createIcons();
+    }
+  } finally {
+    searchInProgress = false;
+  }
+}
+
+// Helper functions for the new browser
+function getRiskLevel(score) {
+  if (score >= 80) return 'Very High';
+  if (score >= 60) return 'High';  
+  if (score >= 40) return 'Medium';
+  if (score >= 20) return 'Low';
+  return 'Very Low';
+}
+
+function getRiskColor(riskLevel) {
+  const colors = {
+    'Very High': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+    'High': 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+    'Medium': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+    'Low': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
+    'Very Low': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+  };
+  return colors[riskLevel] || colors['Very Low'];
+}
+
+function hideAllContentPanels() {
+  document.getElementById('welcome-panel').classList.add('hidden');
+  document.getElementById('sections-panel').classList.add('hidden');
+  document.getElementById('search-results').classList.add('hidden');
+}
+
+function showWelcome() {
+  hideAllContentPanels();
+  document.getElementById('welcome-panel').classList.remove('hidden');
+  hideBreadcrumb();
+}
+
+function showTitles() {
+  document.getElementById('parts-panel').classList.add('hidden');
+  document.getElementById('titles-panel').classList.remove('hidden');
+  showWelcome();
+  currentTitle = null;
+  currentPart = null;
+}
+
+function showParts() {
+  if (!currentTitle) {
+    showTitles();
+    return;
+  }
+  hideAllContentPanels();
+  showBreadcrumb(`> Title ${currentTitle}`);
+}
+
+function showBreadcrumb(content) {
+  document.getElementById('breadcrumb-content').innerHTML = content;
+  document.getElementById('breadcrumb').classList.remove('hidden');
+}
+
+function hideBreadcrumb() {
+  document.getElementById('breadcrumb').classList.add('hidden');
+}
+
+function clearSearch() {
+  document.getElementById('regulation_search').value = '';
+  showWelcome();
+}
+
+function sortSections() {
+  if (!currentSections || !currentTitle || !currentPart) return;
+  
+  const sortBy = document.getElementById('sort-sections').value;
+  loadSections(currentTitle, currentPart, sortBy);
+}
+
+// ========================== SECTION TEXT DISPLAY ==========================
+
+async function showSectionText(sectionCitation, title, part) {
+  try {
+    // Show modal immediately
+    document.getElementById('section-modal').classList.remove('hidden');
+    document.getElementById('modal-section-citation').textContent = sectionCitation;
+    document.getElementById('modal-section-title').textContent = 'Loading...';
+    document.getElementById('modal-section-content').innerHTML = 
+      '<p class="text-center text-muted-foreground">Loading section content...</p>';
+    
+    const date = currentBrowseDate || '2025-08-22';
+    
+    let sectionData;
+    try {
+      sectionData = await jfetch(
+        `${API_BASE}/api/section/text?title=${title}&part=${encodeURIComponent(part)}&section=${encodeURIComponent(sectionCitation)}&date=${encodeURIComponent(date)}`
+      );
+    } catch (err) {
+      console.log('New section endpoint failed, using basic part data');
+      // Fallback to existing API
+      const partData = await jfetch(`${API_BASE}/api/part?title=${title}&part=${encodeURIComponent(part)}&date=${encodeURIComponent(date)}`);
+      const section = partData.find(s => s.section_citation === sectionCitation);
+      
+      if (!section) {
+        throw new Error('Section not found');
+      }
+      
+      sectionData = {
+        section_citation: section.section_citation,
+        section_heading: section.section_heading,
+        section_text: 'Full section text not available in basic mode',
+        word_count: section.word_count,
+        regulatory_burden_score: section.regulatory_burden_score || 0,
+        prohibition_count: section.prohibition_count || 0,
+        requirement_count: section.requirement_count || 0
+      };
+    }
+    
+    // Update modal content
+    document.getElementById('modal-section-title').textContent = sectionData.section_heading || 'Regulation Text';
+    document.getElementById('modal-burden-score').textContent = (sectionData.regulatory_burden_score || 0).toFixed(1);
+    document.getElementById('modal-word-count').textContent = (sectionData.word_count || 0).toLocaleString();
+    document.getElementById('modal-prohibitions').textContent = sectionData.prohibition_count || 0;
+    document.getElementById('modal-requirements').textContent = sectionData.requirement_count || 0;
+    
+    // Format and display section text
+    const content = document.getElementById('modal-section-content');
+    if (sectionData.section_text && sectionData.section_text !== 'Full section text not available in basic mode') {
+      content.innerHTML = `
+        <div class="prose prose-sm max-w-none dark:prose-invert">
+          <h4 class="text-lg font-semibold mb-3">${sectionData.section_heading || 'Section Text'}</h4>
+          <div class="whitespace-pre-wrap text-sm leading-relaxed bg-muted/30 p-4 rounded-lg">
+            ${sectionData.section_text}
+          </div>
+        </div>
+        
+        ${sectionData.enforcement_terms > 0 || sectionData.temporal_references > 0 || sectionData.dollar_mentions > 0 ? `
+          <div class="mt-6 p-4 bg-yellow-50 dark:bg-yellow-950 rounded-lg">
+            <h5 class="font-semibold mb-2 text-yellow-800 dark:text-yellow-200">Key Indicators</h5>
+            <div class="space-y-1 text-sm">
+              ${sectionData.enforcement_terms > 0 ? `<div>⚖️ ${sectionData.enforcement_terms} enforcement terms</div>` : ''}
+              ${sectionData.temporal_references > 0 ? `<div>⏰ ${sectionData.temporal_references} time references</div>` : ''}
+              ${sectionData.dollar_mentions > 0 ? `<div>💰 ${sectionData.dollar_mentions} cost references</div>` : ''}
+            </div>
+          </div>
+        ` : ''}
+      `;
+    } else {
+      content.innerHTML = `
+        <div class="text-center py-8">
+          <i data-lucide="file-text" class="h-12 w-12 text-muted-foreground mx-auto mb-4"></i>
+          <h4 class="text-lg font-semibold mb-2">Section Preview</h4>
+          <p class="text-muted-foreground mb-4">Full text not available in basic mode</p>
+          <div class="bg-muted/30 p-4 rounded-lg text-left">
+            <p class="font-semibold">${sectionData.section_heading || 'No heading available'}</p>
+            <p class="text-sm text-muted-foreground mt-2">Citation: ${sectionData.section_citation}</p>
+          </div>
+        </div>
+      `;
+    }
+    
+    // Recreate icons
+    if (window.lucide) window.lucide.createIcons();
+    
+  } catch (err) {
+    console.error('Error loading section text:', err);
+    document.getElementById('modal-section-content').innerHTML = `
+      <div class="text-center py-8">
+        <i data-lucide="alert-circle" class="h-12 w-12 text-red-500 mx-auto mb-4"></i>
+        <h4 class="text-lg font-semibold mb-2 text-red-600">Error Loading Section</h4>
+        <p class="text-muted-foreground">${err.message}</p>
+      </div>
+    `;
+    if (window.lucide) window.lucide.createIcons();
+  }
+}
+
+function closeSectionModal() {
+  document.getElementById('section-modal').classList.add('hidden');
+}
+
+// Add fallback functions for basic browsing
+async function loadPartsLegacy(titleNum) {
+  console.log(`Loading parts for title ${titleNum} using legacy method`);
+  alert(`Title ${titleNum} parts would be loaded here. This is a fallback when enhanced browsing fails.`);
 }
