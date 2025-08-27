@@ -1,13 +1,14 @@
 # eCFR Analytics — Regulatory Intelligence Platform
 
-A comprehensive regulatory analytics platform that ingests eCFR data, provides historical trend analysis, and delivers professional insights through BigQuery, FastAPI, and a modern web interface.
+A comprehensive regulatory analytics platform that ingests eCFR data, provides historical trend analysis, and delivers professional insights through BigQuery, FastAPI, and a modern web interface with AI-powered conversational analysis.
 
 **What you get**
 - **Smart Ingestor** (`ingestion/ecfr_ingest.py`) — XML-based eCFR parser with BigQuery integration and historical backfill capabilities
 - **Enhanced Analytics** — Custom regulatory burden scoring, prohibition/requirement counting, enforcement term detection
 - **Historical Analysis** — Monthly snapshots from 2017-present with smart amendment-based skipping  
 - **Professional API** (`api/main.py`) — 15+ endpoints for comprehensive regulatory analysis including trends, burden distribution, and change velocity
-- **Modern UI** (`ui/`) — ShadCN-inspired interface with dark/light themes, tabbed navigation, and responsive design
+- **AI Assistant** (`ai_service/`) — Vertex AI-powered conversational interface with RAG (Retrieval-Augmented Generation) for regulatory Q&A
+- **Modern UI** (`ui/`) — ShadCN-inspired interface with dark/light themes, tabbed navigation, responsive design, and integrated AI chat
 - **Automated Infrastructure** — BigQuery dataset/table creation, schema management, and batched loading
 
 > Uses the public **eCFR Versioner** API with robust XML parsing.
@@ -40,6 +41,10 @@ uv sync
 cd ../api
 uv sync
 
+# Setup AI service environment
+cd ../ai_service
+uv pip install -r requirements.txt
+
 # Configure BigQuery access
 cp .env.example .env
 # Edit .env to set your PROJECT_ID and preferred dataset/table names
@@ -54,6 +59,19 @@ gcloud config set project YOUR_PROJECT_ID
 
 # Option B: Use service account (for production/CI)
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+
+# Enable required APIs for AI service
+gcloud services enable aiplatform.googleapis.com
+gcloud services enable bigquery.googleapis.com
+
+# Create service account for AI service (optional)
+gcloud iam service-accounts create ecfr-ai-service
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:ecfr-ai-service@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/aiplatform.user"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:ecfr-ai-service@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/bigquery.user"
 ```
 
 ### 3. Ingest Sample Data
@@ -78,12 +96,29 @@ uv run uvicorn main:app --reload --port 8000
 # Interactive docs at http://localhost:8000/docs
 ```
 
-### 5. Launch the Web Interface
+### 5. Start the AI Service
+
+```bash
+cd ai_service
+# Configure environment (create .env file)
+echo "PROJECT_ID=YOUR_PROJECT_ID
+REGION=us-central1
+DATASET=ecfr_enhanced
+TABLE=sections_enhanced
+GOOGLE_APPLICATION_CREDENTIALS=~/ecfr-ai-key.json" > .env
+
+# Start the AI service
+uv run python main.py
+# AI service will be available at http://localhost:8001
+```
+
+### 6. Launch the Web Interface
 
 ```bash
 cd ui
 python -m http.server 8080
 # Open http://localhost:8080
+# AI Assistant tab will connect to the AI service automatically
 ```
 
 ---
@@ -164,6 +199,23 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8001
 - `GET /api/available-dates` — Available data dates
 - `GET /api/agencies?date=2025-08-22` — Agency list
 
+### AI Assistant Features
+
+The integrated AI Assistant provides:
+
+- **Conversational Interface** — Natural language queries about federal regulations
+- **RAG Architecture** — Retrieval-Augmented Generation with full regulatory context
+- **Regulatory Expertise** — AI trained on CFR hierarchy, burden scoring, and compliance terminology
+- **Source Citations** — Every response includes specific CFR section references
+- **Semantic Search** — Intelligent keyword and concept matching across regulations
+- **Conversation History** — Context-aware follow-up questions and clarifications
+- **Real-time Status** — Connection monitoring with visual AI service indicators
+
+**Example Queries:**
+- "What are the ethical conduct requirements for federal employees?"
+- "Show me environmental regulations with high regulatory burden scores"
+- "Explain the enforcement mechanisms in Title 21"
+
 ### Web Interface Features
 
 The modern web interface provides:
@@ -171,15 +223,16 @@ The modern web interface provides:
 - **Overview Tab** — Agency word counts, checksums, and change analysis
 - **Historical Analysis Tab** — Trend visualization and regulatory burden tracking  
 - **Part Browser Tab** — Deep-dive into specific CFR parts and sections
+- **AI Assistant Tab** — Conversational interface with regulatory expertise and source citations
 - **Dark/Light Theme** — Automatic system preference detection with manual toggle
 - **Responsive Design** — Professional ShadCN-inspired components
-- **Real-time API Status** — Connection monitoring with visual indicators
+- **Real-time API Status** — Connection monitoring with visual indicators for both API and AI services
 - **Enhanced Tables** — Smart formatting, loading states, and error handling
 
 ### Advanced Configuration
 
 #### Custom BigQuery Schema
-The enhanced schema includes custom regulatory metrics:
+The enhanced schema includes custom regulatory metrics and AI-optimized fields:
 
 ```sql
 -- Regulatory burden scoring (0-100 scale)
@@ -190,7 +243,11 @@ prohibition_count INT64,
 requirement_count INT64,
 enforcement_terms INT64,
 temporal_references INT64,
-dollar_mentions INT64
+dollar_mentions INT64,
+
+-- AI-optimized fields for RAG
+ai_context_summary STRING,      -- AI-generated context summaries
+embedding_optimized_text STRING -- Text optimized for vector embeddings
 ```
 
 #### Performance Optimization
@@ -228,6 +285,14 @@ curl http://localhost:8000/healthz
 
 # Check BigQuery connectivity
 curl "http://localhost:8000/api/available-dates"
+
+# Verify AI service is running
+curl http://localhost:8001/health
+
+# Test AI service chat endpoint
+curl -X POST http://localhost:8001/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"office"}'
 ```
 
 **Empty Data Results**
@@ -239,6 +304,12 @@ curl "http://localhost:8000/api/available-dates"
 - Check browser console for JavaScript errors
 - Verify API_BASE setting in `ui/app.js` matches your API server
 - Ensure CORS is working (should be enabled by default)
+
+**AI Assistant Issues**
+- Verify Vertex AI APIs are enabled: `gcloud services list --enabled | grep aiplatform`
+- Check service account has required roles: `roles/aiplatform.user` and `roles/bigquery.user`
+- Ensure AI context columns exist: Run `ALTER TABLE` commands to add `ai_context_summary` and `embedding_optimized_text`
+- Check available data matches your queries: Current dataset may only contain specific CFR titles
 
 ### Development Tips
 

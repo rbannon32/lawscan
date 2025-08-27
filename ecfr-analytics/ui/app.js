@@ -1,5 +1,8 @@
 // Set to wherever the FastAPI service is running:
 const API_BASE = (location.port === '8080') ? 'http://localhost:8000' : '';
+const AI_API_BASE = 'http://localhost:8001';
+
+console.log('JavaScript loaded, API_BASE:', API_BASE, 'AI_API_BASE:', AI_API_BASE);
 
 async function jfetch(url) {
   try {
@@ -198,6 +201,8 @@ async function loadPartLegacy() {
 
 // Tab functionality
 function switchTab(tabName) {
+  console.log('Switching to tab:', tabName);
+  
   // Hide all tab panels
   document.querySelectorAll('[id$="-tab"]').forEach(tab => {
     tab.classList.add('hidden');
@@ -218,6 +223,12 @@ function switchTab(tabName) {
   if (btn) {
     btn.classList.add('bg-background', 'text-foreground', 'shadow-sm');
     btn.classList.remove('text-muted-foreground', 'hover:text-foreground');
+  }
+  
+  // Check AI status when switching to chat tab
+  if (tabName === 'chat') {
+    console.log('Detected chat tab, checking AI status...');
+    checkAiStatus();
   }
 }
 
@@ -930,4 +941,285 @@ function closeSectionModal() {
 async function loadPartsLegacy(titleNum) {
   console.log(`Loading parts for title ${titleNum} using legacy method`);
   alert(`Title ${titleNum} parts would be loaded here. This is a fallback when enhanced browsing fails.`);
+}
+
+// ========================== AI CHAT FUNCTIONALITY ==========================
+
+let conversationHistory = [];
+let isAiConnected = false;
+
+// Check AI service status
+async function checkAiStatus() {
+  const statusEl = document.getElementById('ai-status');
+  console.log('Checking AI status at:', `${AI_API_BASE}/health`);
+  
+  try {
+    const response = await fetch(`${AI_API_BASE}/health`);
+    console.log('AI health response:', response.status, response.ok);
+    
+    if (response.ok) {
+      isAiConnected = true;
+      statusEl.innerHTML = `
+        <div class="h-2 w-2 bg-green-500 rounded-full"></div>
+        <span>AI Ready</span>
+      `;
+      statusEl.className = 'flex items-center gap-2 px-3 py-1.5 text-sm bg-green-100 text-green-800 rounded-full dark:bg-green-900 dark:text-green-200';
+      console.log('AI status set to ready');
+    } else {
+      throw new Error('AI service unavailable');
+    }
+  } catch (err) {
+    console.error('AI status check failed:', err);
+    isAiConnected = false;
+    statusEl.innerHTML = `
+      <div class="h-2 w-2 bg-red-500 rounded-full"></div>
+      <span>AI Offline</span>
+    `;
+    statusEl.className = 'flex items-center gap-2 px-3 py-1.5 text-sm bg-red-100 text-red-800 rounded-full dark:bg-red-900 dark:text-red-200';
+  }
+}
+
+// Handle chat input keydown
+function handleChatKeyDown(event) {
+  const textarea = event.target;
+  
+  // Update character count
+  const charCount = document.getElementById('char-count');
+  charCount.textContent = `${textarea.value.length}/500`;
+  
+  // Handle Enter key
+  if (event.key === 'Enter') {
+    if (event.shiftKey) {
+      // Allow new line with Shift+Enter
+      return;
+    } else {
+      // Send message with Enter
+      event.preventDefault();
+      sendMessage();
+    }
+  }
+}
+
+// Add message to chat
+function addMessage(content, isUser = false, sources = []) {
+  const messagesContainer = document.getElementById('chat-messages');
+  
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'flex items-start gap-3';
+  
+  const avatarClass = isUser 
+    ? 'h-8 w-8 bg-muted rounded-full flex items-center justify-center'
+    : 'h-8 w-8 bg-primary rounded-full flex items-center justify-center';
+  
+  const avatarIcon = isUser 
+    ? 'user'
+    : 'bot';
+  
+  const iconColor = isUser 
+    ? 'text-muted-foreground'
+    : 'text-primary-foreground';
+  
+  messageDiv.innerHTML = `
+    <div class="${avatarClass}">
+      <i data-lucide="${avatarIcon}" class="h-4 w-4 ${iconColor}"></i>
+    </div>
+    <div class="flex-1">
+      <div class="${isUser ? 'bg-primary text-primary-foreground' : 'bg-muted/50'} rounded-lg p-4">
+        <div class="text-sm whitespace-pre-wrap">${content}</div>
+      </div>
+      ${sources.length > 0 ? `
+        <div class="mt-2 text-xs">
+          <details class="cursor-pointer">
+            <summary class="text-muted-foreground hover:text-foreground">Sources (${sources.length})</summary>
+            <div class="mt-2 space-y-2">
+              ${sources.map(source => `
+                <div class="bg-muted/30 rounded p-2">
+                  <div class="font-semibold">${source.citation}</div>
+                  <div class="text-muted-foreground">${source.agency} • Burden: ${source.burden_score}/100</div>
+                  <div class="text-xs mt-1">${source.summary}</div>
+                </div>
+              `).join('')}
+            </div>
+          </details>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  
+  messagesContainer.appendChild(messageDiv);
+  
+  // Recreate icons
+  if (window.lucide) window.lucide.createIcons();
+  
+  // Scroll to bottom
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// Add typing indicator
+function addTypingIndicator() {
+  const messagesContainer = document.getElementById('chat-messages');
+  
+  const typingDiv = document.createElement('div');
+  typingDiv.id = 'typing-indicator';
+  typingDiv.className = 'flex items-start gap-3';
+  typingDiv.innerHTML = `
+    <div class="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
+      <i data-lucide="bot" class="h-4 w-4 text-primary-foreground"></i>
+    </div>
+    <div class="flex-1">
+      <div class="bg-muted/50 rounded-lg p-4">
+        <div class="flex items-center space-x-1">
+          <div class="flex space-x-1">
+            <div class="h-2 w-2 bg-muted-foreground rounded-full animate-bounce"></div>
+            <div class="h-2 w-2 bg-muted-foreground rounded-full animate-bounce" style="animation-delay: 0.1s"></div>
+            <div class="h-2 w-2 bg-muted-foreground rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+          </div>
+          <span class="text-xs text-muted-foreground ml-2">AI is thinking...</span>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  messagesContainer.appendChild(typingDiv);
+  if (window.lucide) window.lucide.createIcons();
+  messagesContainer.scrollTop = messagesContainer.scrollHeight;
+}
+
+// Remove typing indicator
+function removeTypingIndicator() {
+  const indicator = document.getElementById('typing-indicator');
+  if (indicator) {
+    indicator.remove();
+  }
+}
+
+// Send message to AI
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const message = input.value.trim();
+  
+  if (!message) return;
+  
+  if (!isAiConnected) {
+    addMessage('AI service is not available. Please check the connection and try again.');
+    return;
+  }
+  
+  // Add user message
+  addMessage(message, true);
+  
+  // Clear input
+  input.value = '';
+  document.getElementById('char-count').textContent = '0/500';
+  
+  // Disable send button
+  const sendButton = document.getElementById('send-button');
+  sendButton.disabled = true;
+  
+  // Add typing indicator
+  addTypingIndicator();
+  
+  try {
+    const response = await fetch(`${AI_API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: message,
+        conversation_history: conversationHistory,
+        date: currentBrowseDate || '2025-08-22',
+        max_context_sections: 5
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error(`AI service error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    // Remove typing indicator
+    removeTypingIndicator();
+    
+    // Add AI response
+    addMessage(result.response, false, result.sources);
+    
+    // Update conversation history
+    conversationHistory.push({
+      user: message,
+      assistant: result.response
+    });
+    
+    // Keep only last 10 exchanges to manage context size
+    if (conversationHistory.length > 10) {
+      conversationHistory = conversationHistory.slice(-10);
+    }
+    
+    // Show sources if available
+    if (result.sources && result.sources.length > 0) {
+      showSources(result.sources);
+    }
+    
+  } catch (err) {
+    console.error('Chat error:', err);
+    removeTypingIndicator();
+    addMessage(`Sorry, I encountered an error: ${err.message}. Please try again.`);
+  } finally {
+    // Re-enable send button
+    sendButton.disabled = false;
+  }
+}
+
+// Show sources panel
+function showSources(sources) {
+  const panel = document.getElementById('sources-panel');
+  const content = document.getElementById('sources-content');
+  
+  content.innerHTML = sources.map(source => `
+    <div class="border rounded-lg p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h5 class="font-semibold">${source.citation}</h5>
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-1 text-xs rounded-full ${
+            source.burden_score >= 60 ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
+            source.burden_score >= 40 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
+            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+          }">
+            ${source.burden_score}/100
+          </span>
+        </div>
+      </div>
+      <p class="text-sm text-muted-foreground mb-2">${source.agency} • ${source.heading}</p>
+      <p class="text-sm">${source.summary}</p>
+      <button onclick="showSectionText('${source.citation}', ${source.title}, '${source.part}')" 
+              class="text-xs text-primary hover:text-primary/80 mt-2">
+        View Full Text →
+      </button>
+    </div>
+  `).join('');
+  
+  panel.classList.remove('hidden');
+  
+  // Recreate icons
+  if (window.lucide) window.lucide.createIcons();
+}
+
+// Clear chat
+function clearChat() {
+  const messagesContainer = document.getElementById('chat-messages');
+  
+  // Clear all messages except the welcome message
+  const welcomeMessage = messagesContainer.firstElementChild;
+  messagesContainer.innerHTML = '';
+  messagesContainer.appendChild(welcomeMessage);
+  
+  // Clear conversation history
+  conversationHistory = [];
+  
+  // Hide sources panel
+  document.getElementById('sources-panel').classList.add('hidden');
+  
+  // Recreate icons
+  if (window.lucide) window.lucide.createIcons();
 }

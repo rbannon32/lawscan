@@ -36,7 +36,22 @@ CREATE TABLE IF NOT EXISTS ecfr.sections (
   section_hash     STRING,
   normalized_text  STRING,
 
-  raw_json         JSON
+  raw_json         JSON,
+  
+  -- Enhanced regulatory metrics
+  prohibition_count INT64,
+  requirement_count INT64,
+  exception_count INT64,
+  sentence_count INT64,
+  avg_sentence_length FLOAT64,
+  dollar_mentions INT64,
+  temporal_references INT64,
+  enforcement_terms INT64,
+  regulatory_burden_score FLOAT64,
+  
+  -- AI-optimized fields for RAG and embeddings
+  ai_context_summary STRING,
+  embedding_optimized_text STRING
 )
 PARTITION BY version_date
 CLUSTER BY title_num, agency_name, part_num;

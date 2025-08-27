@@ -313,6 +313,74 @@ def _word_count(s: str) -> int:
 def _regex_count(pattern: str, s: str) -> int:
     return len(re.findall(pattern, s, flags=re.IGNORECASE))
 
+def create_ai_context_summary(section_citation: str, section_heading: str, section_text: str,
+                            title_num: int, part_num: str, agency_name: str,
+                            burden_score: float, obligations: int, prohibitions: int, requirements: int) -> str:
+    """Create a structured summary optimized for AI embeddings and RAG retrieval."""
+    
+    # Risk level classification
+    if burden_score >= 80:
+        risk_level = "Very High Risk"
+    elif burden_score >= 60:
+        risk_level = "High Risk"
+    elif burden_score >= 40:
+        risk_level = "Medium Risk"
+    elif burden_score >= 20:
+        risk_level = "Low Risk"
+    else:
+        risk_level = "Very Low Risk"
+    
+    # Extract key regulatory concepts
+    key_terms = []
+    text_lower = section_text.lower()
+    
+    # Safety and environmental terms
+    safety_terms = ['safety', 'hazard', 'risk', 'danger', 'protect', 'secure']
+    environmental_terms = ['environment', 'pollution', 'emissions', 'waste', 'contamination']
+    compliance_terms = ['comply', 'violation', 'penalty', 'enforcement', 'audit']
+    
+    for term in safety_terms + environmental_terms + compliance_terms:
+        if term in text_lower:
+            key_terms.append(term)
+    
+    # Create structured context for AI
+    context_parts = [
+        f"CFR Section: {section_citation}",
+        f"Title: {title_num}, Part: {part_num}",
+        f"Agency: {agency_name}",
+        f"Regulatory Risk: {risk_level} (Score: {burden_score:.1f}/100)",
+        f"Heading: {section_heading or 'No heading'}",
+        f"Regulatory Complexity: {obligations} obligations, {prohibitions} prohibitions, {requirements} requirements"
+    ]
+    
+    if key_terms:
+        context_parts.append(f"Key Terms: {', '.join(set(key_terms[:10]))}")
+    
+    # Add first 500 characters of actual text
+    if section_text:
+        text_preview = section_text[:500] + "..." if len(section_text) > 500 else section_text
+        context_parts.append(f"Text: {text_preview}")
+    
+    return " | ".join(context_parts)
+
+def create_embedding_optimized_text(section_citation: str, section_heading: str, section_text: str,
+                                  title_num: int, part_num: str, agency_name: str) -> str:
+    """Create text specifically optimized for vector embeddings."""
+    
+    # Start with hierarchical context
+    hierarchy = f"Title {title_num} CFR Part {part_num} Section {section_citation}"
+    agency_context = f"Regulated by {agency_name}" if agency_name else ""
+    heading_context = f"Subject: {section_heading}" if section_heading else ""
+    
+    # Clean and truncate text for embeddings (typically 512-1024 tokens work best)
+    clean_text = re.sub(r'\s+', ' ', section_text).strip()
+    
+    # For embeddings, include context but focus on the actual regulatory content
+    embedding_parts = [hierarchy, agency_context, heading_context, clean_text[:1500]]
+    embedding_text = " ".join([part for part in embedding_parts if part]).strip()
+    
+    return embedding_text
+
 def rows_for_part(part_json: Dict[str, Any], meta: Dict[str, Any], title_num: int, title_name: str, version_date: str, snapshot_ts: str) -> Iterable[Dict[str, Any]]:
     order = 0
     rows = []
@@ -372,6 +440,16 @@ def rows_for_part(part_json: Dict[str, Any], meta: Dict[str, Any], title_num: in
                 # Custom regulatory burden score (0-100)
                 burden_score = min(100.0, (oblig + prohibitions + requirements) * 10.0 / max(1, wc / 100))
                 
+                # AI-optimized text fields
+                ai_context_summary = create_ai_context_summary(
+                    sec_num or "", heading or "", section_text, title_num, meta.get("part_num", ""), 
+                    meta.get("agency_name", ""), burden_score, oblig, prohibitions, requirements
+                )
+                
+                embedding_optimized_text = create_embedding_optimized_text(
+                    sec_num or "", heading or "", section_text, title_num, meta.get("part_num", ""), meta.get("agency_name", "")
+                )
+                
             else:
                 normalized = ""
                 section_hash = hashlib.sha256("".encode("utf-8")).hexdigest()
@@ -388,6 +466,8 @@ def rows_for_part(part_json: Dict[str, Any], meta: Dict[str, Any], title_num: in
                 temporal_refs = 0
                 enforcement = 0
                 burden_score = 0.0
+                ai_context_summary = ""
+                embedding_optimized_text = ""
 
             rows.append({
                 "version_date": version_date,
@@ -428,6 +508,9 @@ def rows_for_part(part_json: Dict[str, Any], meta: Dict[str, Any], title_num: in
                 "temporal_references": temporal_refs,
                 "enforcement_terms": enforcement,
                 "regulatory_burden_score": burden_score,
+                # AI-optimized fields for RAG and embeddings
+                "ai_context_summary": ai_context_summary,
+                "embedding_optimized_text": embedding_optimized_text,
             })
         
         # Recurse through children

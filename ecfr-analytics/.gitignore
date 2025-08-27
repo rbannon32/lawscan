@@ -57,6 +57,7 @@ api/data/
 service-account*.json
 gcp-*.json
 *-sa-key.json
+ecfr-ai-key.json
 
 # Logs
 *.log

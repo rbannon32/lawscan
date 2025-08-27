@@ -104,6 +104,9 @@
           <button class="tab-button border-b-2 border-transparent text-muted-foreground hover:text-foreground pb-2 px-1" data-tab="search">
             Part Browser
           </button>
+          <button class="tab-button border-b-2 border-transparent text-muted-foreground hover:text-foreground pb-2 px-1" data-tab="chat">
+            AI Assistant
+          </button>
         </nav>
       </div>
 
@@ -507,6 +510,96 @@
           </div>
         </div>
       </div>
+
+      <!-- AI Assistant Tab -->
+      <div id="tab-chat" class="tab-content hidden">
+        <div class="max-w-4xl mx-auto space-y-6">
+          <!-- Chat Header -->
+          <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
+            <div class="p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h3 class="text-xl font-semibold mb-2">eCFR AI Assistant</h3>
+                  <p class="text-muted-foreground">Ask questions about federal regulations and get expert analysis with full regulatory context</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <div id="ai-status" class="flex items-center gap-2 px-3 py-1.5 text-sm bg-muted rounded-full">
+                    <div class="h-2 w-2 bg-gray-400 rounded-full"></div>
+                    <span>Connecting...</span>
+                  </div>
+                  <button onclick="clearChat()" class="text-muted-foreground hover:text-foreground">
+                    <i data-lucide="trash-2" class="h-5 w-5"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat Messages -->
+          <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
+            <div id="chat-messages" class="p-6 space-y-4 max-h-96 overflow-y-auto">
+              <div class="flex items-start gap-3">
+                <div class="h-8 w-8 bg-primary rounded-full flex items-center justify-center">
+                  <i data-lucide="bot" class="h-4 w-4 text-primary-foreground"></i>
+                </div>
+                <div class="flex-1">
+                  <div class="bg-muted/50 rounded-lg p-4">
+                    <p class="text-sm">👋 Hello! I'm your eCFR AI Assistant. I can help you with:</p>
+                    <ul class="text-sm mt-2 space-y-1 text-muted-foreground">
+                      <li>• Finding specific regulations and requirements</li>
+                      <li>• Explaining regulatory burden and compliance implications</li>
+                      <li>• Analyzing prohibitions, penalties, and enforcement</li>
+                      <li>• Understanding CFR hierarchy and cross-references</li>
+                    </ul>
+                    <p class="text-sm mt-2">Try asking: <em>"What are the safety requirements for Title 21?"</em></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat Input -->
+          <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
+            <div class="p-4">
+              <div class="flex items-end gap-2">
+                <div class="flex-1">
+                  <textarea 
+                    id="chat-input"
+                    placeholder="Ask about regulations, compliance requirements, or specific CFR sections..."
+                    class="w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    rows="2"
+                    onkeydown="handleChatKeyDown(event)"
+                  ></textarea>
+                </div>
+                <button 
+                  id="send-button"
+                  onclick="sendMessage()"
+                  class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
+                >
+                  <i data-lucide="send" class="h-4 w-4"></i>
+                </button>
+              </div>
+              <div class="flex items-center justify-between mt-2 text-xs text-muted-foreground">
+                <span>Press Shift+Enter for new line, Enter to send</span>
+                <span id="char-count">0/500</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sources Panel -->
+          <div id="sources-panel" class="card bg-card text-card-foreground rounded-lg border shadow-sm hidden">
+            <div class="p-6">
+              <h4 class="font-semibold mb-3 flex items-center gap-2">
+                <i data-lucide="book-open" class="h-4 w-4"></i>
+                Sources & Context
+              </h4>
+              <div id="sources-content" class="space-y-3">
+                <!-- Sources will be populated here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Section Text Modal -->
@@ -583,6 +676,12 @@
             content.classList.add('hidden');
           });
           document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+          
+          // Check AI status when switching to chat tab
+          if (tabId === 'chat') {
+            console.log('Chat tab clicked, checking AI status...');
+            checkAiStatus();
+          }
         });
       });
 
