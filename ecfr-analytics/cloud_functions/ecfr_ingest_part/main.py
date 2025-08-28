@@ -170,6 +170,34 @@ def analyze_regulatory_content(text: str) -> Dict[str, Any]:
         "regulatory_burden_score": burden_score
     }
 
+def get_agency_from_title(title_num: int) -> str:
+    """Get agency name based on title number"""
+    # CFR Title to Agency mapping
+    title_to_agency = {
+        1: "National Archives and Records Administration",
+        2: "Office of Management and Budget",
+        3: "Executive Office of the President",
+        4: "Government Accountability Office",
+        5: "Office of Personnel Management",
+        6: "Federal Retirement Thrift Investment Board",
+        7: "Department of Agriculture",
+        8: "Aliens and Nationality (DHS/DOJ)",
+        9: "Animals and Animal Products (USDA)",
+        10: "Department of Energy",
+        11: "Federal Elections Commission",
+        12: "Department of the Treasury",
+        13: "Business Credit and Assistance (SBA)",
+        14: "Department of Transportation",
+        15: "Environmental Protection Agency",
+        16: "Department of Commerce",
+        17: "Commodity Futures Trading Commission",
+        18: "Conservation of Power and Water Resources (FERC)",
+        19: "Customs Duties (CBP)",
+        20: "Food and Drug Administration",
+        21: "Food and Drug Administration",
+    }
+    return title_to_agency.get(title_num, f"Title {title_num} Agency")
+
 def create_ai_context_summary(section_citation: str, section_heading: str, section_text: str,
                              title_num: int, part_num: str, agency_name: str,
                              burden_score: float, obligations: int, prohibitions: int, requirements: int) -> str:
@@ -226,7 +254,7 @@ def process_section(section_node: Dict, title_data: Dict, part_data: Dict,
     # Create AI context
     ai_summary = create_ai_context_summary(
         section_citation, section_heading, section_text,
-        title_num, part_data["identifier"], None,  # Agency name not available in structure
+        title_num, part_data["identifier"], get_agency_from_title(title_num),
         metrics["regulatory_burden_score"], 
         metrics["modal_obligation_terms_count"],
         metrics["prohibition_count"], 
@@ -255,7 +283,7 @@ def process_section(section_node: Dict, title_data: Dict, part_data: Dict,
         "section_heading": section_heading,
         "section_text": section_text,
         "reserved": section_node.get("reserved", False),
-        "agency_name": None,
+        "agency_name": get_agency_from_title(title_num),
         "references": [],
         "authority_uscode": [],
         "part_order": 1,

@@ -151,3 +151,14 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+ecfr-analytics/data/
+
+# Bulk XML files
+bulk-ingestion/data/
+*.xml
+
+# Plaintext files
+plaintext/
+bulk-ingestion/plaintext/
+*.txt
