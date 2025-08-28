@@ -390,7 +390,7 @@ async function loadTitles() {
         <div class="grid grid-cols-2 gap-2 text-xs text-muted-foreground mb-2">
           <span>${title.total_words?.toLocaleString() || 0} words</span>
           <span>${title.sections_count?.toLocaleString() || 0} sections</span>
-          <span>Avg burden: ${title.avg_burden_score || 0}</span>
+          <span>Avg burden: ${createBurdenScoreWithTooltip((title.avg_burden_score || 0).toFixed(1))}</span>
           <span>${title.total_prohibitions || 0} prohibitions</span>
         </div>
         <div class="text-xs text-muted-foreground">
@@ -437,7 +437,7 @@ async function loadParts(titleNum) {
               part.avg_burden_score >= 40 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
               'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
             }">
-              ${part.avg_burden_score || 0} burden
+              ${createBurdenScoreWithTooltip((part.avg_burden_score || 0).toFixed(1))} burden
             </div>
           </div>
         </div>
@@ -517,7 +517,7 @@ async function loadSections(titleNum, partNum, sortBy = 'order') {
                 ${section.risk_level}
               </span>
               <span class="text-xs text-muted-foreground">
-                ${(section.regulatory_burden_score || 0).toFixed(1)}
+                ${createBurdenScoreWithTooltip((section.regulatory_burden_score || 0).toFixed(1))}
               </span>
               <i data-lucide="eye" class="h-4 w-4 text-muted-foreground ml-2"></i>
             </div>
@@ -624,7 +624,7 @@ async function searchRegulations() {
                 ${getRiskLevel(result.regulatory_burden_score)}
               </span>
               <span class="text-xs text-muted-foreground">
-                ${(result.regulatory_burden_score || 0).toFixed(1)}
+                ${createBurdenScoreWithTooltip((result.regulatory_burden_score || 0).toFixed(1))}
               </span>
             </div>
           </div>
@@ -849,6 +849,15 @@ async function showSectionText(sectionCitation, title, part) {
 
 function closeSectionModal() {
   document.getElementById('section-modal').classList.add('hidden');
+}
+
+// Helper function to create burden score display with tooltip
+function createBurdenScoreWithTooltip(score, showFullTooltip = false) {
+  const tooltip = showFullTooltip 
+    ? "Weighted score: Modal terms (×2) + Prohibitions (×5) + Requirements (×3) + Enforcement (×4) + Time refs (×1) + Cost refs (×2). Scale: 0-25 Low, 26-50 Medium, 51+ High complexity."
+    : "Composite 0-100 score measuring regulatory complexity. Higher scores indicate more compliance obligations, prohibitions, enforcement terms, and penalties.";
+  
+  return `<span class="tooltip" data-tooltip="${tooltip}">${score}<i data-lucide="help-circle" class="h-3 w-3 ml-1 inline opacity-60"></i></span>`;
 }
 
 // AI Analysis function  

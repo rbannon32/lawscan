@@ -70,6 +70,57 @@
       .loading {
         animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       }
+
+      /* Tooltip Styles */
+      .tooltip {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        cursor: help;
+      }
+
+      .tooltip::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: hsl(var(--foreground));
+        color: hsl(var(--background));
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+        white-space: nowrap;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s, visibility 0.2s;
+        pointer-events: none;
+        box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        max-width: 300px;
+        white-space: normal;
+      }
+
+      .tooltip::before {
+        content: '';
+        position: absolute;
+        bottom: 94%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 4px solid transparent;
+        border-top-color: hsl(var(--foreground));
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.2s, visibility 0.2s;
+      }
+
+      .tooltip:hover::after,
+      .tooltip:hover::before {
+        opacity: 1;
+        visibility: visible;
+      }
     </style>
   </head>
   <body class="min-h-screen bg-background text-foreground">
@@ -222,7 +273,12 @@
                     <thead class="border-b bg-muted/50">
                       <tr>
                         <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Agency</th>
-                        <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Burden Score</th>
+                        <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">
+                          <span class="tooltip" data-tooltip="Composite 0-100 score measuring regulatory complexity. Higher scores indicate more compliance obligations, prohibitions, enforcement terms, and penalties.">
+                            Burden Score
+                            <i data-lucide="help-circle" class="h-3 w-3 ml-1 text-muted-foreground/60"></i>
+                          </span>
+                        </th>
                         <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Sections</th>
                       </tr>
                     </thead>
@@ -494,7 +550,10 @@
         <div class="border-t p-4">
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div class="text-center">
-              <span class="text-muted-foreground">Burden Score</span>
+              <span class="text-muted-foreground tooltip" data-tooltip="Weighted score: Modal terms (×2) + Prohibitions (×5) + Requirements (×3) + Enforcement (×4) + Time refs (×1) + Cost refs (×2). Scale: 0-25 Low, 26-50 Medium, 51+ High complexity.">
+                Burden Score
+                <i data-lucide="help-circle" class="h-3 w-3 ml-1 inline"></i>
+              </span>
               <div class="font-semibold" id="modal-burden-score">-</div>
             </div>
             <div class="text-center">
@@ -514,7 +573,7 @@
       </div>
     </div>
 
-    <script src="./app.js?v=1732822012"></script>
+    <script src="./app.js?v=1732822015"></script>
     <script>
       // Initialize Lucide icons
       lucide.createIcons();
