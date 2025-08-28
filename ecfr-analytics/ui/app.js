@@ -125,33 +125,7 @@ async function loadChecksums() {
   }
 }
 
-async function loadDiff() {
-  try {
-    const tbody = document.querySelector('#tbl_diff_body');
-    if (!tbody) {
-      console.error('Table body #tbl_diff_body not found');
-      return;
-    }
-    
-    showLoading(tbody, 2);
-    const f = document.getElementById('from').value;
-    const t = document.getElementById('to').value;
-    const rows = await jfetch(`${API_BASE}/api/changes?from=${encodeURIComponent(f)}&to=${encodeURIComponent(t)}`);
-    renderRows(tbody, rows, ['section_citation', 'change_type'], {
-      change_type: (val) => {
-        const colors = { ADDED: 'text-green-600', REMOVED: 'text-red-600', MODIFIED: 'text-yellow-600' };
-        const span = document.createElement('span');
-        span.className = colors[val] || 'text-muted-foreground';
-        span.textContent = val;
-        return span.outerHTML;
-      }
-    });
-  } catch (err) {
-    console.error('Error loading diff:', err);
-    const tbody = document.querySelector('#tbl_diff_body');
-    if (tbody) renderError(tbody, 'Error loading data: ' + err.message, 2);
-  }
-}
+// Removed loadDiff function - no longer needed without Regulatory Changes widget
 
 // Legacy function - replaced by new hierarchical browser
 async function loadPartLegacy() {
@@ -293,14 +267,8 @@ document.addEventListener('DOMContentLoaded', function() {
   setValueSafely('date_wc', today);
   setValueSafely('date_ck', today);
   setValueSafely('date_part', today);
-  setValueSafely('from', yesterday);
-  setValueSafely('to', today);
   setValueSafely('browse_date', today);
   setValueSafely('date_burden', today);
-  setValueSafely('trend_start', '2025-01-01');
-  setValueSafely('trend_end', today);
-  setValueSafely('burden_start', '2025-01-01');
-  setValueSafely('burden_end', today);
   
   // Add Enter key support for search
   const searchInput = document.getElementById('regulation_search');
@@ -333,83 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 });
 
-// Missing functions for Historical Analysis tab
-async function loadHistoricalTrends() {
-  try {
-    const tbody = document.querySelector('#tbl_trends_body');
-    if (!tbody) {
-      console.error('Table body #tbl_trends_body not found');
-      return;
-    }
-    
-    showLoading(tbody, 3);
-    const startDate = document.getElementById('trend_start').value;
-    const endDate = document.getElementById('trend_end').value;
-    
-    const rows = await jfetch(`${API_BASE}/api/historical/agency-trends?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`);
-    renderRows(tbody, rows, ['version_date', 'agency_name', 'total_words'], {
-      total_words: (val) => val ? val.toLocaleString() : 0,
-      version_date: (val) => val ? new Date(val).toLocaleDateString() : ''
-    });
-  } catch (err) {
-    console.error('Error loading historical trends:', err);
-    const tbody = document.querySelector('#tbl_trends_body');
-    if (tbody) renderError(tbody, 'Error loading trends: ' + err.message, 3);
-  }
-}
-
-async function loadAvailableDates() {
-  try {
-    const container = document.getElementById('dates_container');
-    if (!container) {
-      console.error('Container #dates_container not found');
-      return;
-    }
-    
-    container.innerHTML = '<p class="text-center text-muted-foreground">Loading dates...</p>';
-    
-    const rows = await jfetch(`${API_BASE}/api/available-dates`);
-    
-    if (!rows || rows.length === 0) {
-      container.innerHTML = '<p class="text-center text-muted-foreground">No dates available</p>';
-      return;
-    }
-    
-    container.innerHTML = rows.map(r => 
-      `<div class="px-3 py-2 bg-muted/50 rounded text-sm">${new Date(r.date).toLocaleDateString()}</div>`
-    ).join('');
-    
-  } catch (err) {
-    console.error('Error loading available dates:', err);
-    const container = document.getElementById('dates_container');
-    if (container) container.innerHTML = `<p class="text-center text-red-600">Error: ${err.message}</p>`;
-  }
-}
-
-async function loadRegulatoryBurden() {
-  try {
-    const tbody = document.querySelector('#tbl_burden_body');
-    if (!tbody) {
-      console.error('Table body #tbl_burden_body not found');
-      return;
-    }
-    
-    showLoading(tbody, 4);
-    const startDate = document.getElementById('burden_start').value;
-    const endDate = document.getElementById('burden_end').value;
-    
-    const rows = await jfetch(`${API_BASE}/api/historical/regulatory-burden?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`);
-    renderRows(tbody, rows, ['version_date', 'agency_name', 'avg_burden_score', 'total_prohibitions'], {
-      avg_burden_score: (val) => val ? val.toFixed(2) : '0.00',
-      total_prohibitions: (val) => val ? val.toLocaleString() : 0,
-      version_date: (val) => val ? new Date(val).toLocaleDateString() : ''
-    });
-  } catch (err) {
-    console.error('Error loading regulatory burden:', err);
-    const tbody = document.querySelector('#tbl_burden_body');
-    if (tbody) renderError(tbody, 'Error loading burden data: ' + err.message, 4);
-  }
-}
+// Historical Analysis functions removed - no longer needed
 
 async function loadBurdenDistribution() {
   try {

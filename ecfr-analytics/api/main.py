@@ -70,9 +70,8 @@ def agency_checksum(date: str = Query(..., description="YYYY-MM-DD")):
     ))
     return [dict(r) for r in job.result()]
 
-@app.get("/api/changes")
-def changes(date_from: str = Query(..., alias="from"),
-            date_to:   str = Query(..., alias="to")):
+# @app.get("/api/changes") - REMOVED - no longer tracking time-based changes
+def removed_changes():
     sql = f"""
     WITH last AS (
       SELECT section_citation, section_hash
@@ -125,8 +124,8 @@ def part(title: int, part: str, date: str):
 
 # ========================== ENHANCED HISTORICAL ENDPOINTS ==========================
 
-@app.get("/api/historical/agency-trends")
-def agency_trends(
+# @app.get("/api/historical/agency-trends") - REMOVED - no historical tracking
+def removed_agency_trends(
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),
     end_date: str = Query(..., description="End date YYYY-MM-DD"),
     agency: Optional[str] = Query(None, description="Filter by agency name")
@@ -163,7 +162,7 @@ def agency_trends(
     job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     return [dict(r) for r in job.result()]
 
-@app.get("/api/historical/regulatory-burden")
+# @app.get("/api/historical/regulatory-burden") - REMOVED
 def regulatory_burden_trends(
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),
     end_date: str = Query(..., description="End date YYYY-MM-DD"),
@@ -208,7 +207,7 @@ def regulatory_burden_trends(
     ))
     return [dict(r) for r in job.result()]
 
-@app.get("/api/historical/change-velocity")
+# @app.get("/api/historical/change-velocity") - REMOVED
 def change_velocity(
     start_date: str = Query(..., description="Start date YYYY-MM-DD"),
     end_date: str = Query(..., description="End date YYYY-MM-DD"),
@@ -305,7 +304,7 @@ def cost_analysis(date: str = Query(..., description="Date YYYY-MM-DD")):
     ))
     return [dict(r) for r in job.result()]
 
-@app.get("/api/available-dates")
+# @app.get("/api/available-dates") - REMOVED
 def available_dates():
     """Get all available dates in the dataset."""
     sql = f"""

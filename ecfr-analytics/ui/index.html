@@ -98,9 +98,6 @@
           <button class="tab-button active border-b-2 border-primary text-primary pb-2 px-1" data-tab="overview">
             Overview
           </button>
-          <button class="tab-button border-b-2 border-transparent text-muted-foreground hover:text-foreground pb-2 px-1" data-tab="historical">
-            Historical Analysis
-          </button>
           <button class="tab-button border-b-2 border-transparent text-muted-foreground hover:text-foreground pb-2 px-1" data-tab="search">
             Part Browser
           </button>
@@ -241,129 +238,8 @@
           </div>
         </div>
 
-        <!-- Section Changes -->
-        <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
-          <div class="p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-semibold">Regulatory Changes</h3>
-              <i data-lucide="git-compare" class="h-5 w-5 text-muted-foreground"></i>
-            </div>
-            <div class="flex items-center gap-2 mb-4">
-              <input 
-                type="date" 
-                id="from" 
-                value="2025-08-22" 
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <span class="text-muted-foreground">to</span>
-              <input 
-                type="date" 
-                id="to" 
-                value="2025-08-22" 
-                class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-              <button 
-                onclick="loadDiff()" 
-                class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 whitespace-nowrap"
-              >
-                <i data-lucide="git-compare" class="h-4 w-4 mr-2"></i>
-                Compare
-              </button>
-            </div>
-            <div class="rounded-md border">
-              <div class="overflow-auto max-h-96">
-                <table class="w-full">
-                  <thead class="border-b bg-muted/50">
-                    <tr>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Section</th>
-                      <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Change Type</th>
-                    </tr>
-                  </thead>
-                  <tbody id="tbl_diff_body">
-                    <tr>
-                      <td class="p-4 text-center text-muted-foreground" colspan="2">Click "Compare" to see changes</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
-      <!-- Historical Analysis Tab -->
-      <div id="tab-historical" class="tab-content hidden">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Agency Trends -->
-          <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
-            <div class="p-6">
-              <h3 class="text-lg font-semibold mb-4">Historical Agency Trends</h3>
-              <div class="space-y-2 mb-4">
-                <div class="grid grid-cols-2 gap-2">
-                  <input 
-                    type="date" 
-                    id="trend_start" 
-                    value="2025-01-01" 
-                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                  <input 
-                    type="date" 
-                    id="trend_end" 
-                    value="2025-08-22" 
-                    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                </div>
-                <button 
-                  onclick="loadHistoricalTrends()" 
-                  class="w-full inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-                >
-                  <i data-lucide="trending-up" class="h-4 w-4 mr-2"></i>
-                  Load Trends
-                </button>
-              </div>
-              <div class="rounded-md border">
-                <div class="overflow-auto max-h-96">
-                  <table class="w-full">
-                    <thead class="border-b bg-muted/50">
-                      <tr>
-                        <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Date</th>
-                        <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Agency</th>
-                        <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Words</th>
-                      </tr>
-                    </thead>
-                    <tbody id="tbl_trends_body">
-                      <tr>
-                        <td class="p-4 text-center text-muted-foreground" colspan="3">Click "Load Trends" to see historical data</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Available Dates -->
-          <div class="card bg-card text-card-foreground rounded-lg border shadow-sm">
-            <div class="p-6">
-              <h3 class="text-lg font-semibold mb-4">Available Data Dates</h3>
-              <button 
-                onclick="loadAvailableDates()" 
-                class="w-full mb-4 inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2"
-              >
-                <i data-lucide="calendar" class="h-4 w-4 mr-2"></i>
-                Load Dates
-              </button>
-              <div class="rounded-md border">
-                <div class="overflow-auto max-h-96">
-                  <div id="dates_container" class="p-4 space-y-2">
-                    <p class="text-center text-muted-foreground">Click "Load Dates" to see available dates</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- Part Browser Tab -->
       <div id="tab-search" class="tab-content hidden">
