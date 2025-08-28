@@ -391,7 +391,7 @@ def insert_to_bigquery_batch(all_sections: List[Dict[str, Any]], project_id: str
         print(f"✅ Inserted batch {i//batch_size + 1}: {len(batch)} sections")
 
 def run_local_parallel_ingestion(title: int, date: str = "2025-08-22", max_workers: int = None, 
-                                dry_run: bool = False) -> Dict[str, Any]:
+                                dry_run: bool = False, verify: bool = True) -> Dict[str, Any]:
     """Run parallel ingestion locally using multiprocessing"""
     
     if max_workers is None:
@@ -466,6 +466,34 @@ def run_local_parallel_ingestion(title: int, date: str = "2025-08-22", max_worke
     print(f"⚡ Parts per Second: {len(parts) / (end_time - start_time):.1f}")
     print(f"📈 Sections per Second: {total_sections / (end_time - start_time):.1f}")
     
+    # Run verification if enabled and not dry run and successful ingestion
+    verification_result = None
+    if verify and not dry_run and failed == 0 and total_sections > 0:
+        print(f"\n🔍 Running verification...")
+        try:
+            # Import verification function (inline import to avoid circular imports)
+            import sys
+            import os
+            sys.path.append(os.path.dirname(__file__))
+            from full_cfr_ingestion import run_title_verification
+            verification_result = run_title_verification(title, date)
+            
+            if verification_result.get('overall_match', False):
+                print(f"✅ Verification passed")
+            else:
+                api_counts = verification_result.get('api_counts', {})
+                bq_counts = verification_result.get('bq_counts', {})
+                print(f"❌ Verification failed:")
+                print(f"   API: {api_counts.get('parts', 0)} parts, {api_counts.get('sections', 0)} sections")
+                print(f"   BigQuery: {bq_counts.get('parts_ingested', 0)} parts, {bq_counts.get('sections_ingested', 0)} sections")
+        except Exception as e:
+            print(f"⚠️ Verification error: {e}")
+            verification_result = {"error": str(e)}
+    elif verify and dry_run:
+        print(f"⏭️ Skipping verification (dry run)")
+    elif not verify:
+        print(f"⏭️ Verification disabled")
+    
     if failed > 0:
         print(f"\n❌ Failed Parts:")
         for result in results:
@@ -483,6 +511,7 @@ def run_local_parallel_ingestion(title: int, date: str = "2025-08-22", max_worke
         "parts_skipped": skipped,
         "sections_ingested": total_sections,
         "dry_run": dry_run,
+        "verification_result": verification_result,
         "detailed_results": results
     }
 
@@ -492,6 +521,7 @@ def main():
     parser.add_argument("--date", default="2025-08-22", help="Version date (YYYY-MM-DD)")
     parser.add_argument("--max-workers", type=int, help="Maximum worker processes (default: CPU count)")
     parser.add_argument("--dry-run", action="store_true", help="Don't insert to BigQuery, just test")
+    parser.add_argument("--no-verify", action="store_true", help="Skip verification step")
     parser.add_argument("--save-results", action="store_true", help="Save detailed results to JSON file")
     
     args = parser.parse_args()
@@ -501,7 +531,8 @@ def main():
         title=args.title,
         date=args.date,
         max_workers=args.max_workers,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        verify=not args.no_verify
     )
     
     # Save results if requested
