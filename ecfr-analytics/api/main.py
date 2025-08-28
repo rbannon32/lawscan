@@ -545,3 +545,124 @@ def get_section_text(
         raise HTTPException(status_code=404, detail="Section not found")
     
     return dict(result[0])
+
+# ========================== AI ANALYSIS ENDPOINT ==========================
+
+@app.post("/api/ai/analyze-section")
+def analyze_section_with_ai(request: dict):
+    """Analyze a specific section using AI."""
+    section_citation = request.get("section_citation")
+    title = request.get("title")
+    part = request.get("part")
+    date = request.get("date")
+    
+    if not all([section_citation, title, part, date]):
+        raise HTTPException(status_code=400, detail="Missing required parameters")
+    
+    try:
+        # Get full section data from BigQuery
+        sql = f"""
+        SELECT 
+            section_citation,
+            section_heading,
+            section_text,
+            word_count,
+            regulatory_burden_score,
+            prohibition_count,
+            requirement_count,
+            enforcement_terms,
+            temporal_references,
+            dollar_mentions,
+            agency_name,
+            title_num,
+            part_num
+        FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
+        WHERE version_date = DATE(@d) 
+          AND title_num = @title 
+          AND part_num = @part
+          AND section_citation = @section
+        LIMIT 1
+        """
+        
+        job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("d", "STRING", date),
+                bigquery.ScalarQueryParameter("title", "INT64", int(title)),
+                bigquery.ScalarQueryParameter("part", "STRING", part),
+                bigquery.ScalarQueryParameter("section", "STRING", section_citation)
+            ]
+        ))
+        
+        result = list(job.result())
+        if not result:
+            raise HTTPException(status_code=404, detail="Section not found")
+        
+        section_data = dict(result[0])
+        
+        # Call AI analysis function
+        analysis = generate_ai_analysis(section_data)
+        
+        return {"analysis": analysis, "section_citation": section_citation}
+        
+    except Exception as e:
+        print(f"Error in AI analysis: {e}")
+        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
+
+
+def generate_ai_analysis(section_data):
+    """Generate AI analysis using Gemini 2.5 Flash."""
+    import google.generativeai as genai
+    import os
+    
+    # Configure Gemini API
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise Exception("GEMINI_API_KEY environment variable not set")
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Prepare section information
+    section_text = section_data.get('section_text', 'Text not available')
+    section_heading = section_data.get('section_heading', 'No heading')
+    citation = section_data.get('section_citation', 'Unknown citation')
+    agency = section_data.get('agency_name', 'Unknown agency')
+    
+    # Create comprehensive prompt
+    prompt = f"""
+    Analyze this federal regulation section and provide insights:
+    
+    **SECTION DETAILS:**
+    - Citation: {citation}
+    - Heading: {section_heading}
+    - Agency: {agency}
+    - Word Count: {section_data.get('word_count', 0)}
+    - Regulatory Burden Score: {section_data.get('regulatory_burden_score', 0):.1f}/100
+    - Prohibitions: {section_data.get('prohibition_count', 0)}
+    - Requirements: {section_data.get('requirement_count', 0)}
+    - Enforcement Terms: {section_data.get('enforcement_terms', 0)}
+    
+    **SECTION TEXT:**
+    {section_text[:3000]}{'...' if len(str(section_text)) > 3000 else ''}
+    
+    **PLEASE PROVIDE:**
+    
+    1. **Historical Context** (2-3 sentences): What regulatory purpose does this section serve and why might it have been created?
+    
+    2. **Complexity Factor** (1-2 sentences): How complex is this regulation for compliance officers and businesses to understand and implement?
+    
+    3. **Regulatory Burden Assessment** (2-3 sentences): Based on the metrics, how burdensome is this section on organizations? Is the burden score of {section_data.get('regulatory_burden_score', 0):.1f} appropriate?
+    
+    4. **Necessity Analysis** (2-3 sentences): How necessary is this regulation for protecting public interest, safety, or fair business practices?
+    
+    5. **Improvement Opportunities** (2-3 sentences): What specific changes could make this regulation clearer, less burdensome, or more effective?
+    
+    Keep your response concise but informative. Focus on practical insights that would help regulatory professionals understand this section better.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+        
+    except Exception as e:
+        raise Exception(f"Gemini API error: {str(e)}")

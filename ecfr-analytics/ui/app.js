@@ -796,6 +796,16 @@ async function showSectionText(sectionCitation, title, part) {
             </div>
           </div>
         ` : ''}
+        
+        <div class="mt-6 flex justify-center">
+          <button 
+            onclick="askAIAboutSection('${sectionData.section_citation}', '${title}', '${part}', event)"
+            class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-purple-600 text-white hover:bg-purple-700 h-10 px-6 py-2 shadow-lg"
+          >
+            <i data-lucide="brain-circuit" class="h-4 w-4 mr-2"></i>
+            Ask AI
+          </button>
+        </div>
       `;
     } else {
       content.innerHTML = `
@@ -806,6 +816,16 @@ async function showSectionText(sectionCitation, title, part) {
           <div class="bg-muted/30 p-4 rounded-lg text-left">
             <p class="font-semibold">${sectionData.section_heading || 'No heading available'}</p>
             <p class="text-sm text-muted-foreground mt-2">Citation: ${sectionData.section_citation}</p>
+          </div>
+          
+          <div class="mt-6 flex justify-center">
+            <button 
+              onclick="askAIAboutSection('${sectionData.section_citation}', '${title}', '${part}', event)"
+              class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 bg-purple-600 text-white hover:bg-purple-700 h-10 px-6 py-2 shadow-lg"
+            >
+              <i data-lucide="brain-circuit" class="h-4 w-4 mr-2"></i>
+              Ask AI
+            </button>
           </div>
         </div>
       `;
@@ -829,6 +849,121 @@ async function showSectionText(sectionCitation, title, part) {
 
 function closeSectionModal() {
   document.getElementById('section-modal').classList.add('hidden');
+}
+
+// AI Analysis function  
+async function askAIAboutSection(sectionCitation, title, part, event) {
+  console.log('Asking AI about section:', sectionCitation, 'Title:', title, 'Part:', part);
+  
+  try {
+    // Show loading state
+    const button = event ? event.target.closest('button') : document.querySelector(`[onclick*="askAIAboutSection('${sectionCitation}'"]`);
+    const originalContent = button.innerHTML;
+    button.innerHTML = '<i data-lucide="loader-2" class="h-4 w-4 mr-2 animate-spin"></i>Analyzing...';
+    button.disabled = true;
+    
+    // Recreate loading icon
+    if (window.lucide) window.lucide.createIcons();
+    
+    const response = await fetch(`${API_BASE}/api/ai/analyze-section`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        section_citation: sectionCitation,
+        title: title,
+        part: part,
+        date: BROWSE_DATE
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API Error (${response.status}): ${errorText || 'Unknown error'}`);
+    }
+    
+    const result = await response.json();
+    
+    // Display AI response
+    showAIAnalysis(result.analysis, sectionCitation);
+    
+    // Restore button
+    button.innerHTML = originalContent;
+    button.disabled = false;
+    if (window.lucide) window.lucide.createIcons();
+    
+  } catch (err) {
+    console.error('Error getting AI analysis:', err);
+    
+    // Show error message
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'mt-4 p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg';
+    errorDiv.innerHTML = `
+      <div class="flex items-center">
+        <i data-lucide="alert-circle" class="h-5 w-5 text-red-600 mr-2"></i>
+        <p class="text-red-800 dark:text-red-200 text-sm">
+          <strong>AI Analysis Failed:</strong> ${err.message}
+        </p>
+      </div>
+    `;
+    
+    // Insert error after the button  
+    const button = event ? event.target.closest('button') : document.querySelector(`[onclick*="askAIAboutSection('${sectionCitation}'"]`);
+    button.parentNode.insertBefore(errorDiv, button.nextSibling);
+    
+    // Restore button
+    button.innerHTML = originalContent;
+    button.disabled = false;
+    if (window.lucide) window.lucide.createIcons();
+    
+    // Remove error after 10 seconds
+    setTimeout(() => {
+      if (errorDiv.parentNode) {
+        errorDiv.parentNode.removeChild(errorDiv);
+      }
+    }, 10000);
+  }
+}
+
+// Display AI Analysis in a new section
+function showAIAnalysis(analysis, sectionCitation) {
+  // Create or update AI analysis section
+  let aiSection = document.getElementById('ai-analysis-section');
+  
+  if (!aiSection) {
+    aiSection = document.createElement('div');
+    aiSection.id = 'ai-analysis-section';
+    aiSection.className = 'mt-6 p-6 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-950 dark:to-blue-950 rounded-lg border border-purple-200 dark:border-purple-800';
+    
+    // Insert after the modal content
+    const modalContent = document.getElementById('modal-section-content');
+    modalContent.appendChild(aiSection);
+  }
+  
+  aiSection.innerHTML = `
+    <div class="flex items-center mb-4">
+      <i data-lucide="brain-circuit" class="h-6 w-6 text-purple-600 mr-2"></i>
+      <h5 class="text-lg font-semibold text-purple-900 dark:text-purple-100">AI Analysis for ${sectionCitation}</h5>
+    </div>
+    
+    <div class="prose prose-sm max-w-none dark:prose-invert text-gray-800 dark:text-gray-200">
+      <div class="whitespace-pre-wrap leading-relaxed">${analysis}</div>
+    </div>
+    
+    <div class="mt-4 pt-4 border-t border-purple-200 dark:border-purple-700">
+      <p class="text-xs text-purple-600 dark:text-purple-400 flex items-center">
+        <i data-lucide="sparkles" class="h-3 w-3 mr-1"></i>
+        Generated by Gemini 2.5 Flash
+      </p>
+    </div>
+  `;
+  
+  // Recreate icons
+  if (window.lucide) window.lucide.createIcons();
+  
+  // Scroll to the analysis
+  aiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Add fallback functions for basic browsing
