@@ -8,10 +8,8 @@ import os
 import sys
 import requests
 import argparse
-from collections import defaultdict
 from google.cloud import bigquery
 from dotenv import load_dotenv
-from datetime import datetime
 
 load_dotenv()
 
@@ -23,12 +21,13 @@ TABLE = os.getenv("TABLE", "sections_enhanced")
 # eCFR API base
 ECFR_API_BASE = "https://www.ecfr.gov/api"
 
-def get_ecfr_api_counts(title_num, date="2025-08-22"):
+def get_ecfr_api_counts(title_num):
     """Get part and section counts from eCFR API."""
     print(f"  🌐 Fetching Title {title_num} from eCFR API...")
     
     try:
-        url = f"{ECFR_API_BASE}/versioner/v1/structure/{date}/title-{title_num}.json"
+        # Use current date for API
+        url = f"{ECFR_API_BASE}/versioner/v1/structure/current/title-{title_num}.json"
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -46,8 +45,9 @@ def get_ecfr_api_counts(title_num, date="2025-08-22"):
             if node.get("type") == "part":
                 part_num = node.get("identifier", "")
                 if part_num and not node.get("reserved", False):  # Skip reserved parts
-                    api_parts.add(part_num)
-                parent_part = part_num
+                    # Ensure part number is stored as string for consistent comparison
+                    api_parts.add(str(part_num))
+                parent_part = str(part_num)
             
             # Check if this is a section
             elif node.get("type") == "section":
@@ -76,7 +76,7 @@ def get_ecfr_api_counts(title_num, date="2025-08-22"):
             'parts': len(api_parts),
             'sections': len(api_sections),
             'reserved': reserved_count,
-            'part_list': sorted(api_parts, key=lambda x: int(x) if x.isdigit() else 999999),
+            'part_list': sorted(api_parts, key=lambda x: (int(x) if x.isdigit() else 999999, x)),
             'section_details': api_sections
         }
         
@@ -87,8 +87,8 @@ def get_ecfr_api_counts(title_num, date="2025-08-22"):
         print(f"  ❌ Error parsing API response: {e}")
         return None
 
-def get_bigquery_counts(client, title_num, date="2025-08-22"):
-    """Get part and section counts from BigQuery."""
+def get_bigquery_counts(client, title_num):
+    """Get part and section counts from BigQuery (all data, not date-specific)."""
     print(f"  📊 Querying BigQuery for Title {title_num}...")
     
     sql = f"""
@@ -98,13 +98,11 @@ def get_bigquery_counts(client, title_num, date="2025-08-22"):
         COUNT(CASE WHEN reserved = true THEN 1 END) as reserved_sections,
         ARRAY_AGG(DISTINCT part_num) as part_list
     FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
-    WHERE version_date = DATE(@date)
-      AND title_num = @title_num
+    WHERE title_num = @title_num
     """
     
     job = client.query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
-            bigquery.ScalarQueryParameter("date", "STRING", date),
             bigquery.ScalarQueryParameter("title_num", "INT64", title_num)
         ]
     ))
@@ -153,27 +151,27 @@ def compare_counts(title_num, api_counts, bq_counts):
         
         if missing_in_bq:
             print(f"\n  🔍 Parts in API but missing from BigQuery:")
-            for part in sorted(missing_in_bq, key=lambda x: int(x) if x.isdigit() else 999999):
+            for part in sorted(missing_in_bq, key=lambda x: (int(x) if x.isdigit() else 999999, x)):
                 print(f"     - Part {part}")
         
         if extra_in_bq:
             print(f"\n  🔍 Parts in BigQuery but not in API:")
-            for part in sorted(extra_in_bq, key=lambda x: int(x) if x.isdigit() else 999999):
+            for part in sorted(extra_in_bq, key=lambda x: (int(x) if x.isdigit() else 999999, x)):
                 print(f"     - Part {part}")
     
     return parts_match and sections_match
 
-def verify_all_titles(client, titles, date="2025-08-22"):
+def verify_all_titles(client, titles):
     """Verify multiple titles."""
-    print(f"\n🔍 ECFR DATA VERIFICATION - {date}")
+    print(f"\n🔍 ECFR DATA VERIFICATION")
     print("=" * 60)
     
     results = []
     for title_num in titles:
         print(f"\n🔄 Processing Title {title_num}...")
         
-        api_counts = get_ecfr_api_counts(title_num, date)
-        bq_counts = get_bigquery_counts(client, title_num, date)
+        api_counts = get_ecfr_api_counts(title_num)
+        bq_counts = get_bigquery_counts(client, title_num)
         
         match = compare_counts(title_num, api_counts, bq_counts)
         results.append({
@@ -206,7 +204,6 @@ def verify_all_titles(client, titles, date="2025-08-22"):
 def main():
     parser = argparse.ArgumentParser(description="Verify eCFR data against API")
     parser.add_argument("--titles", nargs="+", type=int, help="Title numbers to verify", default=[3, 7])
-    parser.add_argument("--date", default="2025-08-22", help="Version date (YYYY-MM-DD)")
     parser.add_argument("--all", action="store_true", help="Verify all titles in BigQuery")
     
     args = parser.parse_args()
@@ -218,18 +215,15 @@ def main():
         sql = f"""
         SELECT DISTINCT title_num
         FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
-        WHERE version_date = DATE(@date)
         ORDER BY title_num
         """
-        job = client.query(sql, job_config=bigquery.QueryJobConfig(
-            query_parameters=[bigquery.ScalarQueryParameter("date", "STRING", args.date)]
-        ))
+        job = client.query(sql)
         titles = [row.title_num for row in job.result()]
         print(f"Found {len(titles)} titles in BigQuery to verify")
     else:
         titles = args.titles
     
-    success = verify_all_titles(client, titles, args.date)
+    success = verify_all_titles(client, titles)
     
     sys.exit(0 if success else 1)
 
