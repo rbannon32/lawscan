@@ -1,6 +1,8 @@
-// Set to wherever the FastAPI service is running:
-const API_BASE = (location.port === '8080') ? 'http://localhost:8000' : '';
-const AI_API_BASE = 'http://localhost:8001';
+// Set API base URL based on environment
+const API_BASE = (location.hostname === 'localhost' && location.port === '8080') 
+  ? 'http://localhost:8000'  // Local development
+  : '';  // Production - use same origin (nginx proxy)
+const AI_API_BASE = 'http://localhost:8001'; // Only for local conversational AI service
 
 console.log('JavaScript loaded, API_BASE:', API_BASE, 'AI_API_BASE:', AI_API_BASE);
 

@@ -17,7 +17,14 @@ TABLE   = os.getenv("TABLE", "sections")
 if not PROJECT_ID:
     raise RuntimeError("Set PROJECT_ID env (or use .env) before starting the API")
 
-bq = bigquery.Client(project=PROJECT_ID)
+# Initialize BigQuery client lazily to avoid startup errors
+bq = None
+
+def get_bq_client():
+    global bq
+    if bq is None:
+        bq = bigquery.Client(project=PROJECT_ID)
+    return bq
 
 app = FastAPI(title="eCFR Analytics API", version="0.1.0")
 app.add_middleware(
@@ -40,7 +47,7 @@ def agency_wordcount(date: str = Query(..., description="YYYY-MM-DD")):
     GROUP BY agency_name
     ORDER BY total_words DESC
     """
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("d", "STRING", date)]
     ))
     return [dict(r) for r in job.result()]
@@ -65,7 +72,7 @@ def agency_checksum(date: str = Query(..., description="YYYY-MM-DD")):
     GROUP BY agency_name
     ORDER BY agency_name
     """
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("d", "STRING", date)]
     ))
     return [dict(r) for r in job.result()]
@@ -96,7 +103,7 @@ def removed_changes():
     WHERE NOT (last.section_hash = now.section_hash)
     ORDER BY change_type, section_citation
     """
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("d1", "STRING", date_from),
             bigquery.ScalarQueryParameter("d2", "STRING", date_to),
@@ -113,7 +120,7 @@ def part(title: int, part: str, date: str):
     WHERE version_date = DATE(@d) AND title_num = @t AND part_num = @p
     ORDER BY section_order
     """
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("d", "STRING", date),
             bigquery.ScalarQueryParameter("t", "INT64", title),
@@ -159,7 +166,7 @@ def removed_agency_trends(
     if agency:
         params.append(bigquery.ScalarQueryParameter("agency", "STRING", agency))
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     return [dict(r) for r in job.result()]
 
 # @app.get("/api/historical/regulatory-burden") - REMOVED
@@ -198,7 +205,7 @@ def regulatory_burden_trends(
     ORDER BY version_date, avg_burden_score DESC
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("start", "STRING", start_date),
             bigquery.ScalarQueryParameter("end", "STRING", end_date),
@@ -246,7 +253,7 @@ def change_velocity(
     ORDER BY month
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("start", "STRING", start_date),
             bigquery.ScalarQueryParameter("end", "STRING", end_date),
@@ -276,7 +283,7 @@ def burden_distribution(date: str = Query(..., description="Date YYYY-MM-DD")):
     ORDER BY avg_burden DESC
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("d", "STRING", date)]
     ))
     return [dict(r) for r in job.result()]
@@ -299,7 +306,7 @@ def cost_analysis(date: str = Query(..., description="Date YYYY-MM-DD")):
     LIMIT 50
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("d", "STRING", date)]
     ))
     return [dict(r) for r in job.result()]
@@ -312,7 +319,7 @@ def available_dates():
     FROM `{PROJECT_ID}.{DATASET}.{TABLE}`
     ORDER BY version_date DESC
     """
-    job = bq.query(sql)
+    job = get_bq_client().query(sql)
     return [{"date": str(r["version_date"])} for r in job.result()]
 
 @app.get("/api/agencies")
@@ -332,7 +339,7 @@ def agencies(date: Optional[str] = Query(None, description="Date YYYY-MM-DD, def
     ORDER BY agency_name
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(query_parameters=params))
     return [dict(r) for r in job.result()]
 
 # ========================== ENHANCED BROWSING ENDPOINTS ==========================
@@ -356,7 +363,7 @@ def browse_titles(date: str = Query(..., description="Date YYYY-MM-DD")):
     ORDER BY title_num
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[bigquery.ScalarQueryParameter("d", "STRING", date)]
     ))
     return [dict(r) for r in job.result()]
@@ -398,7 +405,7 @@ def browse_parts(title: int, date: str = Query(..., description="Date YYYY-MM-DD
         ORDER BY SAFE_CAST(p.part_num AS INT64)
         """
         
-        job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("d", "STRING", date),
                 bigquery.ScalarQueryParameter("title", "INT64", title)
@@ -456,7 +463,7 @@ def browse_sections(
     ORDER BY {sort_clause}
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("d", "STRING", date),
             bigquery.ScalarQueryParameter("title", "INT64", title),
@@ -493,7 +500,7 @@ def browse_search(
     """
     
     search_pattern = f"%{query}%"
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("d", "STRING", date),
             bigquery.ScalarQueryParameter("query", "STRING", search_pattern),
@@ -531,7 +538,7 @@ def get_section_text(
     LIMIT 1
     """
     
-    job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+    job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("d", "STRING", date),
             bigquery.ScalarQueryParameter("title", "INT64", title),
@@ -584,7 +591,7 @@ def analyze_section_with_ai(request: dict):
         LIMIT 1
         """
         
-        job = bq.query(sql, job_config=bigquery.QueryJobConfig(
+        job = get_bq_client().query(sql, job_config=bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("d", "STRING", date),
                 bigquery.ScalarQueryParameter("title", "INT64", int(title)),

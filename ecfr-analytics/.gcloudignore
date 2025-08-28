@@ -1,0 +1,29 @@
+# gcloudignore - specify what to exclude from build context
+.gcloudignore
+.git
+.gitignore
+
+# Exclude large data directories
+data/
+plaintext/
+ingestion/
+bulk-ingestion/
+
+# Exclude development files
+.vscode/
+.idea/
+*.log
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# But explicitly INCLUDE these directories
+!api/
+!ui/
+
+# Allow all files in api and ui directories
+!api/**
+!ui/**

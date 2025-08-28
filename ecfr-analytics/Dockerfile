@@ -13,21 +13,22 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 WORKDIR /app
 
 # Copy and install Python dependencies
-COPY requirements.txt .
+COPY api/requirements.txt .
 RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy API code
-COPY main.py .
-COPY .env.example .env
+COPY api/main.py .
+COPY api/.env.example .env
 
-# Copy nginx configuration
-COPY nginx.conf /etc/nginx/sites-available/default
+# Copy UI files and configure nginx
+COPY ui/ /var/www/html/
+COPY api/nginx.conf /etc/nginx/sites-available/default
 
-# Copy UI files (we'll copy them manually during build)
-# UI files will be copied via the build context
+# Set proper permissions for UI files
+RUN chmod -R 644 /var/www/html/ && chmod 755 /var/www/html/
 
 # Create startup script
-COPY start.sh .
+COPY api/start.sh .
 RUN chmod +x start.sh
 
 # Cloud Run expects port 8080
