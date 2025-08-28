@@ -86,7 +86,18 @@ uv run python ecfr_ingest.py --date 2025-08-22 --titles 3 7 21 --bigquery
 uv run python ecfr_ingest.py --backfill --titles 3 --start-year 2020
 ```
 
-### 4. Start the API Server
+### 4. Configure API Environment
+
+```bash
+cd api
+# Edit .env file to add your Gemini API key for AI analysis
+echo "PROJECT_ID=your-gcp-project
+DATASET=ecfr_enhanced
+TABLE=sections_enhanced
+GEMINI_API_KEY=your_gemini_api_key_here" > .env
+```
+
+### 5. Start the API Server
 
 ```bash
 cd api
@@ -96,7 +107,7 @@ uv run uvicorn main:app --reload --port 8000
 # Interactive docs at http://localhost:8000/docs
 ```
 
-### 5. Start the AI Service
+### 6. Start the AI Service (Optional - for conversational AI)
 
 ```bash
 cd ai_service
@@ -112,7 +123,7 @@ uv run python main.py
 # AI service will be available at http://localhost:8001
 ```
 
-### 6. Launch the Web Interface
+### 7. Launch the Web Interface
 
 ```bash
 cd ui
@@ -183,21 +194,24 @@ uv run uvicorn main:app --host 0.0.0.0 --port 8001
 #### Key API Endpoints
 
 **Core Analytics**
-- `GET /api/agency/wordcount?date=2025-08-22` — Word counts by agency
-- `GET /api/agency/checksum?date=2025-08-22` — Content checksums  
-- `GET /api/changes?from=2025-08-01&to=2025-08-22` — Section changes over time
-- `GET /api/part?title=3&part=100&date=2025-08-22` — Detailed part contents
+- `GET /api/agency/wordcount?date=2025-08-28` — Word counts by agency
+- `GET /api/agency/checksum?date=2025-08-28` — Content checksums  
+- `GET /api/part?title=3&part=100&date=2025-08-28` — Detailed part contents
 
-**Historical Analysis** 
-- `GET /api/historical/agency-trends?start_date=2024-01-01&end_date=2025-08-22` — Agency trends over time
-- `GET /api/historical/regulatory-burden?start_date=2024-01-01&end_date=2025-08-22&top_n=10` — Top regulatory burden agencies
-- `GET /api/historical/change-velocity?start_date=2024-01-01&end_date=2025-08-22` — Rate of regulatory changes
+**Enhanced Browsing**
+- `GET /api/browse/titles?date=2025-08-28` — Browse all CFR titles with statistics
+- `GET /api/browse/parts?title=7&date=2025-08-28` — Browse parts within a title
+- `GET /api/browse/sections?title=7&part=100&date=2025-08-28&sort_by=burden` — Browse sections with sorting
+- `GET /api/browse/search?query=office&date=2025-08-28` — Search across regulations
+
+**AI-Powered Analysis**
+- `POST /api/ai/analyze-section` — Get AI analysis of specific regulation sections with historical context, complexity assessment, and improvement recommendations
 
 **Advanced Metrics**
-- `GET /api/metrics/burden-distribution?date=2025-08-22` — Regulatory burden analysis
-- `GET /api/metrics/cost-analysis?date=2025-08-22` — Sections with financial references
-- `GET /api/available-dates` — Available data dates
-- `GET /api/agencies?date=2025-08-22` — Agency list
+- `GET /api/metrics/burden-distribution?date=2025-08-28` — Regulatory burden analysis
+- `GET /api/metrics/cost-analysis?date=2025-08-28` — Sections with financial references
+- `GET /api/section/text?title=7&part=100&section=7 CFR § 100.1&date=2025-08-28` — Full section text and metrics
+- `GET /api/agencies?date=2025-08-28` — Agency list
 
 ### AI Assistant Features
 
@@ -220,10 +234,17 @@ The integrated AI Assistant provides:
 
 The modern web interface provides:
 
-- **Overview Tab** — Agency word counts, checksums, and change analysis
-- **Historical Analysis Tab** — Trend visualization and regulatory burden tracking  
-- **Part Browser Tab** — Deep-dive into specific CFR parts and sections
-- **AI Assistant Tab** — Conversational interface with regulatory expertise and source citations
+- **Overview Tab** — Agency word counts, checksums, and regulatory burden analysis with interactive tooltips
+- **Part Browser Tab** — Enhanced browsing with search, sorting, and detailed section analysis
+- **AI Assistant Tab** — Conversational interface with regulatory expertise and source citations  
+- **Section-level AI Analysis** — Click "Ask AI" on any section for detailed analysis including:
+  - Historical context and regulatory purpose
+  - Complexity assessment for compliance officers
+  - Regulatory burden evaluation with score justification
+  - Necessity analysis for public interest protection
+  - Specific improvement recommendations
+- **Interactive Regulatory Burden Tooltips** — Hover over any burden score to see detailed calculation methodology
+- **Enhanced Search** — Full-text search across all regulations with burden score filtering
 - **Dark/Light Theme** — Automatic system preference detection with manual toggle
 - **Responsive Design** — Professional ShadCN-inspired components
 - **Real-time API Status** — Connection monitoring with visual indicators for both API and AI services
@@ -305,7 +326,13 @@ curl -X POST http://localhost:8001/chat \
 - Verify API_BASE setting in `ui/app.js` matches your API server
 - Ensure CORS is working (should be enabled by default)
 
-**AI Assistant Issues**
+**AI Analysis Issues**
+- **Gemini API**: Ensure you have a valid `GEMINI_API_KEY` in your API `.env` file
+- **API Quota**: Check Google AI Studio for API usage limits
+- **Missing Analysis**: Verify the section exists and contains text data
+- **Connection Error**: Ensure the API server is running with the updated environment
+
+**Conversational AI Assistant Issues** (Optional service)
 - Verify Vertex AI APIs are enabled: `gcloud services list --enabled | grep aiplatform`
 - Check service account has required roles: `roles/aiplatform.user` and `roles/bigquery.user`
 - Ensure AI context columns exist: Run `ALTER TABLE` commands to add `ai_context_summary` and `embedding_optimized_text`
@@ -316,10 +343,12 @@ curl -X POST http://localhost:8001/chat \
 **Testing Changes**
 ```bash
 # Quick single-title test
-uv run python ecfr_ingest.py --date $(date +%Y-%m-%d) --titles 3 --bigquery
+uv run python ecfr_ingest.py --date 2025-08-28 --titles 3 --bigquery
 
-# Validate API with different dates
-curl "http://localhost:8000/api/available-dates" | jq '.[0:5]'
+# Test AI analysis endpoint
+curl -X POST "http://localhost:8000/api/ai/analyze-section" \
+  -H "Content-Type: application/json" \
+  -d '{"section_citation":"48 CFR § 32.204","title":"48","part":"32","date":"2025-08-28"}'
 ```
 
 **Performance Monitoring**
