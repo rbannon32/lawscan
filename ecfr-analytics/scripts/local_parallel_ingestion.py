@@ -354,15 +354,27 @@ def get_parts_for_title(title_num: int, date: str = "2025-08-22") -> List[str]:
         print(f"❌ Error fetching parts for Title {title_num}: {e}")
         return []
 
-def insert_to_bigquery_batch(all_sections: List[Dict[str, Any]], project_id: str, dataset: str, table: str) -> None:
-    """Insert all processed sections into BigQuery in batches"""
+def insert_to_bigquery_batch(all_sections: List[Dict[str, Any]], project_id: str, dataset: str, table: str, 
+                             title_num: int = None, replace_title: bool = True) -> None:
+    """Insert all processed sections into BigQuery in batches, with optional title replacement"""
     if not all_sections:
         return
         
-    print(f"📤 Inserting {len(all_sections)} sections to BigQuery...")
-    
     client = bigquery.Client(project=project_id)
     table_ref = client.dataset(dataset).table(table)
+    
+    # If replace_title is True and we have a title_num, delete existing data for this title
+    if replace_title and title_num:
+        print(f"🗑️ Deleting existing data for Title {title_num} to avoid duplicates...")
+        delete_query = f"""
+        DELETE FROM `{project_id}.{dataset}.{table}` 
+        WHERE title_num = {title_num}
+        """
+        delete_job = client.query(delete_query)
+        delete_job.result()
+        print(f"✅ Deleted existing data for Title {title_num}")
+    
+    print(f"📤 Inserting {len(all_sections)} sections to BigQuery...")
     
     # Configure load job
     job_config = bigquery.LoadJobConfig(
@@ -433,7 +445,7 @@ def run_local_parallel_ingestion(title: int, date: str = "2025-08-22", max_worke
     
     # Insert to BigQuery unless dry run
     if not dry_run and all_sections:
-        insert_to_bigquery_batch(all_sections, PROJECT_ID, DATASET, TABLE)
+        insert_to_bigquery_batch(all_sections, PROJECT_ID, DATASET, TABLE, title_num=title, replace_title=True)
     elif dry_run:
         print(f"🚫 Dry run - would have inserted {len(all_sections)} sections to BigQuery")
     
