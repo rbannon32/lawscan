@@ -95,8 +95,25 @@ async function loadWordcount() {
     
     showLoading(tbody, 2);
     const d = document.getElementById('date_wc').value;
-    const rows = await jfetch(`${API_BASE}/api/agency/wordcount?date=${encodeURIComponent(d)}`);
-    renderRows(tbody, rows, ['agency_name', 'total_words'], {
+    const agencyFilter = document.getElementById('agency_filter_wc').value.trim();
+    
+    let url = `${API_BASE}/api/agency/wordcount?date=${encodeURIComponent(d)}`;
+    if (agencyFilter) {
+      url += `&agency=${encodeURIComponent(agencyFilter)}`;
+    }
+    
+    const rows = await jfetch(url);
+    
+    // Filter results on the client side if agency filter is provided
+    let filteredRows = rows;
+    if (agencyFilter && Array.isArray(rows)) {
+      const filterLower = agencyFilter.toLowerCase();
+      filteredRows = rows.filter(row => 
+        row.agency_name && row.agency_name.toLowerCase().includes(filterLower)
+      );
+    }
+    
+    renderRows(tbody, filteredRows, ['agency_name', 'total_words'], {
       total_words: (val) => val ? val.toLocaleString() : 0
     });
   } catch (err) {
@@ -116,8 +133,25 @@ async function loadChecksums() {
     
     showLoading(tbody, 2);
     const d = document.getElementById('date_ck').value;
-    const rows = await jfetch(`${API_BASE}/api/agency/checksum?date=${encodeURIComponent(d)}`);
-    renderRows(tbody, rows, ['agency_name', 'agency_hash'], {
+    const agencyFilter = document.getElementById('agency_filter_ck').value.trim();
+    
+    let url = `${API_BASE}/api/agency/checksum?date=${encodeURIComponent(d)}`;
+    if (agencyFilter) {
+      url += `&agency=${encodeURIComponent(agencyFilter)}`;
+    }
+    
+    const rows = await jfetch(url);
+    
+    // Filter results on the client side if agency filter is provided
+    let filteredRows = rows;
+    if (agencyFilter && Array.isArray(rows)) {
+      const filterLower = agencyFilter.toLowerCase();
+      filteredRows = rows.filter(row => 
+        row.agency_name && row.agency_name.toLowerCase().includes(filterLower)
+      );
+    }
+    
+    renderRows(tbody, filteredRows, ['agency_name', 'agency_hash'], {
       agency_hash: (val) => val ? val.substring(0, 16) + '...' : ''
     });
   } catch (err) {
@@ -314,9 +348,25 @@ async function loadBurdenDistribution() {
     
     showLoading(tbody, 4);
     const date = document.getElementById('date_burden').value || '2025-08-22';
+    const agencyFilter = document.getElementById('agency_filter_burden').value.trim();
     
-    const rows = await jfetch(`${API_BASE}/api/metrics/burden-distribution?date=${encodeURIComponent(date)}`);
-    renderRows(tbody, rows, ['agency_name', 'avg_burden', 'total_prohibitions', 'total_requirements'], {
+    let url = `${API_BASE}/api/metrics/burden-distribution?date=${encodeURIComponent(date)}`;
+    if (agencyFilter) {
+      url += `&agency=${encodeURIComponent(agencyFilter)}`;
+    }
+    
+    const rows = await jfetch(url);
+    
+    // Filter results on the client side if agency filter is provided
+    let filteredRows = rows;
+    if (agencyFilter && Array.isArray(rows)) {
+      const filterLower = agencyFilter.toLowerCase();
+      filteredRows = rows.filter(row => 
+        row.agency_name && row.agency_name.toLowerCase().includes(filterLower)
+      );
+    }
+    
+    renderRows(tbody, filteredRows, ['agency_name', 'avg_burden', 'total_prohibitions', 'total_requirements'], {
       avg_burden: (val) => val ? val.toFixed(2) : '0.00',
       total_prohibitions: (val) => val ? val.toLocaleString() : 0,
       total_requirements: (val) => val ? val.toLocaleString() : 0
