@@ -255,8 +255,8 @@ document.addEventListener('DOMContentLoaded', function() {
   switchTab('overview');
   
   // Set default dates
-  const today = '2025-08-22';
-  const yesterday = '2025-08-21';
+  const today = '2025-08-28';
+  const yesterday = '2025-08-27';
   
   // Set dates with null checks
   const setValueSafely = (id, value) => {
@@ -267,7 +267,6 @@ document.addEventListener('DOMContentLoaded', function() {
   setValueSafely('date_wc', today);
   setValueSafely('date_ck', today);
   setValueSafely('date_part', today);
-  setValueSafely('browse_date', today);
   setValueSafely('date_burden', today);
   
   // Add Enter key support for search
@@ -330,7 +329,7 @@ async function loadBurdenDistribution() {
 // ========================== ENHANCED PART BROWSER ==========================
 
 // Current state
-let currentBrowseDate = '2025-08-22';
+const BROWSE_DATE = '2025-08-28';
 let currentTitle = null;
 let currentPart = null;
 let currentSections = [];
@@ -339,15 +338,13 @@ let searchInProgress = false;
 // Load all available titles with statistics
 async function loadTitles() {
   try {
-    const date = document.getElementById('browse_date').value;
-    currentBrowseDate = date;
     
     const container = document.getElementById('titles-list');
     container.innerHTML = '<p class="text-center text-muted-foreground">Loading titles...</p>';
     
     let titles;
     try {
-      titles = await jfetch(`${API_BASE}/api/browse/titles?date=${encodeURIComponent(date)}`);
+      titles = await jfetch(`${API_BASE}/api/browse/titles?date=${encodeURIComponent(BROWSE_DATE)}`);
     } catch (err) {
       console.log('New browse endpoint failed, using fallback approach:', err.message);
       // Fallback: Get available titles from existing endpoints
@@ -419,7 +416,7 @@ async function loadParts(titleNum) {
     const container = document.getElementById('parts-list');
     container.innerHTML = '<p class="text-center text-muted-foreground">Loading parts...</p>';
     
-    const parts = await jfetch(`${API_BASE}/api/browse/parts?title=${titleNum}&date=${encodeURIComponent(currentBrowseDate)}`);
+    const parts = await jfetch(`${API_BASE}/api/browse/parts?title=${titleNum}&date=${encodeURIComponent(BROWSE_DATE)}`);
     
     if (!parts || parts.length === 0) {
       container.innerHTML = '<p class="text-center text-muted-foreground">No parts found</p>';
@@ -478,6 +475,7 @@ async function loadParts(titleNum) {
 
 // Load sections for a specific part
 async function loadSections(titleNum, partNum, sortBy = 'order') {
+  console.log('loadSections called with:', titleNum, partNum, sortBy);
   try {
     currentTitle = titleNum;
     currentPart = partNum;
@@ -486,7 +484,7 @@ async function loadSections(titleNum, partNum, sortBy = 'order') {
     container.innerHTML = '<p class="text-center text-muted-foreground">Loading sections...</p>';
     
     const sections = await jfetch(
-      `${API_BASE}/api/browse/sections?title=${titleNum}&part=${encodeURIComponent(partNum)}&date=${encodeURIComponent(currentBrowseDate)}&sort_by=${sortBy}`
+      `${API_BASE}/api/browse/sections?title=${titleNum}&part=${encodeURIComponent(partNum)}&date=${encodeURIComponent(BROWSE_DATE)}&sort_by=${sortBy}`
     );
     
     if (!sections || sections.length === 0) {
@@ -563,7 +561,7 @@ async function loadSections(titleNum, partNum, sortBy = 'order') {
 
 // Search across regulations  
 async function searchRegulations() {
-  console.log('Search function called');
+  console.log('Search function called - UPDATED VERSION');
   
   // Prevent multiple simultaneous searches
   if (searchInProgress) {
@@ -572,7 +570,12 @@ async function searchRegulations() {
   }
   
   try {
-    const query = document.getElementById('regulation_search').value.trim();
+    const searchInput = document.getElementById('regulation_search');
+    if (!searchInput) {
+      console.error('Search input element not found');
+      return;
+    }
+    const query = searchInput.value.trim();
     console.log('Search query:', query);
     if (!query) {
       console.log('No query provided');
@@ -580,14 +583,13 @@ async function searchRegulations() {
     }
     
     searchInProgress = true;
-    const date = document.getElementById('browse_date').value;
-    console.log('Search date:', date);
+    console.log('Search date:', BROWSE_DATE);
     const container = document.getElementById('search-list');
     
     container.innerHTML = '<p class="text-center text-muted-foreground">Searching...</p>';
     
     const results = await jfetch(
-      `${API_BASE}/api/browse/search?query=${encodeURIComponent(query)}&date=${encodeURIComponent(date)}`
+      `${API_BASE}/api/browse/search?query=${encodeURIComponent(query)}&date=${encodeURIComponent(BROWSE_DATE)}`
     );
     
     console.log('Search results:', results);
@@ -598,7 +600,7 @@ async function searchRegulations() {
           <i data-lucide="search-x" class="h-12 w-12 text-muted-foreground mx-auto mb-4"></i>
           <h4 class="text-lg font-semibold mb-2">No results found</h4>
           <p class="text-muted-foreground mb-4">No regulations found matching "${query}"</p>
-          <p class="text-sm text-muted-foreground">Try different keywords or check if data exists for ${date}</p>
+          <p class="text-sm text-muted-foreground">Try different keywords or check if data exists for ${BROWSE_DATE}</p>
         </div>
       `;
       // Recreate icons for the new content
@@ -738,7 +740,7 @@ async function showSectionText(sectionCitation, title, part) {
     document.getElementById('modal-section-content').innerHTML = 
       '<p class="text-center text-muted-foreground">Loading section content...</p>';
     
-    const date = currentBrowseDate || '2025-08-22';
+    const date = BROWSE_DATE;
     
     let sectionData;
     try {
@@ -1020,7 +1022,7 @@ async function sendMessage() {
       body: JSON.stringify({
         message: message,
         conversation_history: conversationHistory,
-        date: currentBrowseDate || '2025-08-22',
+        date: BROWSE_DATE,
         max_context_sections: 5
       })
     });
