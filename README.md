@@ -1,4 +1,4 @@
-# My Project
+# Lawscan
 # eCFR Analytics — Regulatory Intelligence Platform
 
 A comprehensive regulatory analytics platform that ingests eCFR data, provides historical trend analysis, and delivers professional insights through BigQuery, FastAPI, and a modern web interface with AI-powered conversational analysis.
